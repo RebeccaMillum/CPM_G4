@@ -1,0 +1,144 @@
+---
+title: "RQ4"
+format: html
+---
+
+# RQ4 — The influence of tumor purity on immune-related biomarkers
+
+How might differences in tumor purity influence the expression of immune- related biomarkers and their observed associations with treatment response? Suggested tasks:
+
+-   Discuss how tumor purity may influence PD-1 expression and T-cell–inflamed GEP scores measured using bulk RNA-seq.
+
+-   Consider whether differences in tumor purity could partly explain the associations observed in RQ2 and RQ3.
+
+-   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers
+
+### Step 1: lode in the data
+
+(code ref week 6)
+
+```{r}
+
+library(immunedeconv)
+library(ggplot2)
+library(limma)
+# Load datasets
+counts <- readRDS("../data/counts.rds")
+tpm <- readRDS("../data/tpm.rds")
+clinical <- readRDS("../data/clinical.rds")
+```
+
+```{r}
+# Check whether all phenotype RNA IDs are represented in the expression matrix.
+all(clinical$sample_id %in% colnames(counts))
+
+# Reorder expression columns to match the phenotype table.
+tpm <- tpm[, match(clinical$sample_id, colnames(counts)), drop = FALSE]
+
+# Explicitly verify the resulting sample order.
+stopifnot(identical(clinical$sample_id, colnames(counts)))
+
+cat("Samples aligned:", ncol(counts), "\n")
+cat("Missing expression values:", sum(is.na(counts)), "\n")
+
+cat("\nResponse distribution:\n")
+print(table(clinical$BOR, useNA = "ifany"))
+
+#cat("\nPFS summary:\n")
+#print(summary(pheno$PFS))
+```
+
+```{r}
+#Helper fuctiones week 6
+plot_Response_boxplot <- function(data, variable, y_label, test_result) {
+  ggplot(data, aes(x = Response, y = .data[[variable]])) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = 0.12, alpha = 0.6) +
+    annotate(
+      "text",
+      x = Inf, y = Inf,
+      label = paste0("p = ", signif(test_result$p.value, 3)),
+      hjust = 1.1, vjust = 1.5
+    ) +
+    labs(
+      x = "Response class",
+      y = y_label
+    ) +
+    theme_minimal()
+}
+
+plot_association <- function(data, x, y, x_label, y_label, cor_test) {
+  rho <- unname(cor_test$estimate)
+
+  ggplot(data, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point(alpha = 0.7) +
+    geom_smooth(method = "lm", se = FALSE) +
+    annotate(
+      "text",
+      x = Inf, y = Inf,
+      label = paste0(
+        "Spearman rho = ", round(rho, 2),
+        "\np = ", signif(cor_test$p.value, 3)
+      ),
+      hjust = 1.1, vjust = 1.3
+    ) +
+    labs(
+      x = x_label,
+      y = y_label
+    ) +
+    theme_minimal()
+}
+```
+
+```{r}
+TMB <- clinical$TMB
+
+# Confirm that PDCD1 is present in the expression matrix.
+"PDCD1" %in% rownames(counts)
+```
+
+```{r}
+# Extract PDCD1 expression.
+PD1 <- as.numeric(counts["PDCD1", ])
+
+summary(TMB)
+```
+
+```{r}
+summary(PD1)
+```
+
+## **Calculate a T cell–inflamed gene-expression score**
+
+Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set. First verify that the required genes are present, then standardize each gene across samples (using scale()), and calculate the mean standardized expression for each sample.
+
+```{r}
+GEP_genes <- c(
+  "CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1",
+  "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E",
+  "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT"
+)
+
+GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(counts)]
+GEP_genes_missing <- setdiff(GEP_genes, rownames(counts))
+
+cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\n")
+```
+
+```{r}
+# Extract GEP genes.
+GEP_expr <- counts[GEP_genes_present, , drop = FALSE]
+
+# Standardize each gene across samples.
+# scale() operates on columns, so transpose before and after scaling.
+GEP_expr_scaled <- t(scale(t(GEP_expr)))
+
+# Average standardized expression across GEP genes for each sample.
+GEP_scores <- colMeans(GEP_expr_scaled, na.rm = TRUE)
+
+summary(GEP_scores)
+```
+
+```{r}
+
+```
