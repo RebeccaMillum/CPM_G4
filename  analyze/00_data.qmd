@@ -1,0 +1,63 @@
+---
+title: "Lode data"
+format: html
+editor: visual
+---
+
+## Quarto
+
+```{r}
+# Load the discovery data from the same folder as this file
+file.exists("/home/projects/22123/IMvigor210_plain.rds")
+
+# Load the RDS file
+data <- readRDS("/home/projects/22123/IMvigor210_plain.rds")
+
+# Inspect the data
+str(data)
+```
+
+```{r}
+counts <- data$counts
+tpm <- data$tpm
+clinical <- data$clinical
+```
+
+```{r}
+# Dimensions
+dim(data$counts)
+dim(data$tpm)
+dim(data$clinical)
+
+# Check gene and sample names
+head(rownames(data$counts))
+head(colnames(data$counts))
+
+# Check clinical data
+head(data$clinical)
+
+# Check missing values
+sum(is.na(data$counts))
+sum(is.na(data$tpm))
+colSums(is.na(data$clinical))
+```
+
+```{r}
+# Check whether sample names match
+identical(colnames(data$counts), colnames(data$tpm))
+identical(colnames(data$counts), data$clinical$sample_id)
+```
+
+```{r}
+#make folder to exprot data 
+# Create folder if it doesn't already exist
+dir.create("../data", showWarnings = FALSE)
+# Save datasets
+saveRDS(counts, "../data/counts.rds")
+saveRDS(tpm, "../data/tpm.rds")
+saveRDS(clinical, "../data/clinical.rds")
+```
+
+```{r}
+
+```
