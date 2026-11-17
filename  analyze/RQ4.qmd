@@ -99,7 +99,7 @@ TMB <- clinical$TMB
 
 ```{r}
 # Extract PDCD1 expression.
-PD1 <- as.numeric(counts["PDCD1", ])
+PD1 <- as.numeric(tpm["PDCD1", ])
 
 summary(TMB)
 ```
@@ -119,15 +119,15 @@ GEP_genes <- c(
   "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT"
 )
 
-GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(counts)]
-GEP_genes_missing <- setdiff(GEP_genes, rownames(counts))
+GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(tpm)]
+GEP_genes_missing <- setdiff(GEP_genes, rownames(tpm))
 
 cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\n")
 ```
 
 ```{r}
 # Extract GEP genes.
-GEP_expr <- counts[GEP_genes_present, , drop = FALSE]
+GEP_expr <- tpm[GEP_genes_present, , drop = FALSE]
 
 # Standardize each gene across samples.
 # scale() operates on columns, so transpose before and after scaling.
@@ -150,7 +150,7 @@ df <- data.frame(
   Response = factor(clinical$BOR)
 )
 
-stopifnot(identical(df$sample, colnames(counts)))
+stopifnot(identical(df$sample, colnames(tpm)))
 
 summary(df)
 
@@ -173,6 +173,9 @@ GEP_Response_test
 ```
 
 ```{r}
+#| eval: false
+#| include: false
+#| We dont need to test
 plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
 ```
 
@@ -184,42 +187,11 @@ plot_Response_boxplot(df, "PD1", "PDCD1 expression", PD1_Response_test)
 plot_Response_boxplot(df, "GEP_scores", "T cell–inflamed GEP score", GEP_Response_test)
 ```
 
-```{r}
-#| eval: false
-#| include: false
-#| This code Will not be run as we dont have PFS data
-#4. Associations with progression-free survival
-#Task 5: Examine whether TMB, PD-1 expression, and the T cell–inflamed GEP are associated with PFS as a continuous outcome.
-
-TMB_PFS_cor <- cor.test(
-  df$PFS, df$TMB,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-PD1_PFS_cor <- cor.test(
-  df$PFS, df$PD1,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-GEP_PFS_cor <- cor.test(
-  df$PFS, df$GEP_scores,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-TMB_PFS_cor 
-```
-
 ## Estimate tumor purity
 
 ```{r}
 #5. Estimate tumor purity
-purity <- deconvolute_estimate(counts)
+purity <- deconvolute_estimate(tpm)
 ```
 
 ```{r}
@@ -232,6 +204,13 @@ dim(purity)
 
 ```{r}
 rownames(purity)
+```
+
+```         
+StromalScore:
+ImmuneScore:
+ESTIMATEScore:
+TumorPurity:  
 ```
 
 ```{r}
@@ -249,9 +228,9 @@ tumor_purity <- as.numeric(purity[purity_row, ])
 names(tumor_purity) <- colnames(purity)
 
 # Reorder purity to match the expression/phenotype sample order.
-tumor_purity <- tumor_purity[colnames(counts)]
+tumor_purity <- tumor_purity[colnames(tpm)]
 
-stopifnot(identical(names(tumor_purity), colnames(counts)))
+stopifnot(identical(names(tumor_purity), colnames(tpm)))
 stopifnot(length(tumor_purity) == nrow(df))
 
 summary(tumor_purity)
@@ -296,6 +275,8 @@ GEP_purity_cor
 ```
 
 ```{r}
+#| eval: false
+#| include: false
 plot_association(
   df, "purity", "TMB",
   "Tumor purity", "Tumor mutational burden", TMB_purity_cor
@@ -324,7 +305,7 @@ Note from wee 6:
 
 ```{r}
 expr_adjusted <- removeBatchEffect(
-  counts,
+  tpm,
   covariates = matrix(df$purity, ncol = 1)
 )
 
