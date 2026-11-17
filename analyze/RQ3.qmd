@@ -1,0 +1,172 @@
+---
+title: "RQ3"
+format: html
+editor: visual
+  markdown: 
+    wrap: 72
+---
+
+# Question nr. 3
+
+# Comparing PD-1, T-cell-inflamed GEP and TMB – how they relate to immunotherapy response
+
+## 
+
+## Load the libraries + data
+
+```{r}
+library(ggplot2)
+library(patchwork)
+
+# folder with the data (change here if the path is different)
+data_dir <- "../22123_cpm/CPM_G4/data"
+
+counts   <- readRDS(file.path(data_dir, "counts.rds"))
+tpm      <- readRDS(file.path(data_dir, "tpm.rds"))
+clinical <- readRDS(file.path(data_dir, "clinical.rds"))
+
+# checking the columns
+colnames(clinical)
+head(clinical)
+```
+
+```{r}
+# column with sample id
+sample_col <- "sample_id"
+
+# column with Best Overall Response
+resp_col <- "BOR"
+
+# defining responder vs non-responder
+responder_values     <- c("R")
+non_responder_values <- c("NR")
+
+# TMB column in clinical
+tmb_col <- "TMB"
+
+# log2 transformation, because TPM is raw data
+log_transform_tpm <- TRUE
+```
+
+## Matching the samples
+
+```{r}
+resp_raw <- as.character(clinical[[resp_col]])
+resp <- ifelse(resp_raw %in% responder_values, "Responder",
+               ifelse(resp_raw %in% non_responder_values, "Non-responder", NA))
+
+clinical$Response <- factor(resp, levels = c("Non-responder", "Responder"))
+
+cat("Distribution of responses:\n")
+print(table(clinical$Response, useNA = "ifany"))
+
+# leave only the samples with one, concrete response
+keep_resp <- !is.na(clinical$Response)
+clinical  <- clinical[keep_resp, ]
+ids       <- as.character(clinical[[sample_col]])
+
+# TPM columns in the same order as clinical
+stopifnot(all(ids %in% colnames(tpm)))
+tpm <- tpm[, ids, drop = FALSE]
+stopifnot(identical(colnames(tpm), ids))
+```
+
+## Separating 3 biomarkers
+
+```{r}
+# expression matrix in log2 scale
+expr <- as.matrix(tpm)
+if (log_transform_tpm) expr <- log2(expr + 1)
+
+# PD-1 = PDCD1 gene expression
+stopifnot("PDCD1" %in% rownames(expr))
+pd1 <- as.numeric(expr["PDCD1", ])
+
+# T-cell-inflamed GEP
+gep_genes <- c("CCL5", "CD27", "CD274", "CD276", "CD8A", "CMKLR1", "CXCL9",
+               "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3",
+               "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
+
+gep_present <- intersect(gep_genes, rownames(expr))
+cat("Found GEP genes:", length(gep_present), "of", length(gep_genes), "\n")
+cat("Missing ones:", paste(setdiff(gep_genes, gep_present), collapse = ", "), "\n")
+
+# standardize each gene across samples (scale by rows),
+# then mean across genes (Exercise 6 -> average standardized expression)
+gep_mat    <- expr[gep_present, , drop = FALSE]
+gep_scaled <- t(scale(t(gep_mat)))   # z-score
+gep_score  <- colMeans(gep_scaled, na.rm = TRUE)
+
+# TMB from clinical data
+if (!is.na(tmb_col)) {
+  tmb <- as.numeric(clinical[[tmb_col]])
+} else {
+  tmb <- rep(NA_real_, nrow(clinical))
+}
+
+# one data frame for analysis
+df <- data.frame(
+  sample   = ids,
+  Response = clinical$Response,
+  PDCD1    = pd1,
+  GEP      = gep_score,
+  TMB      = tmb
+)
+head(df)
+```
+
+## Box plots
+
+Each biomarker in response groups + Wilcoxon test
+
+```{r}
+# boxplot + jitter + p-value from Wilcoxon test
+plot_biomarker <- function(data, var, ylab) {
+  d  <- data[!is.na(data[[var]]), ]
+  wt <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
+  
+  ggplot(d, aes(x = Response, y = .data[[var]], fill = Response)) +
+    geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 1.4) +
+    annotate("text", x = Inf, y = Inf,
+             label = paste0("Wilcoxon p = ", signif(wt$p.value, 3)),
+             hjust = 1.1, vjust = 1.4) +
+    guides(fill = "none") +
+    labs(x = NULL, y = ylab) +
+    theme_classic(base_size = 12)
+}
+
+p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), log2(TPM+1)")
+p_gep <- plot_biomarker(df, "GEP",   "T-cell-inflamed GEP score")
+p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
+
+p_pd1 + p_gep + p_tmb   # 3 panels next to each other
+```
+
+## Table with results
+
+Direction + size + p-value
+
+```{r}
+summarise_biomarker <- function(data, var) {
+  d   <- data[!is.na(data[[var]]), ]
+  med <- tapply(d[[var]], d$Response, median)
+  wt  <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
+  
+  data.frame(
+    Biomarker      = var,
+    n_NonResponder = sum(d$Response == "Non-responder"),
+    n_Responder    = sum(d$Response == "Responder"),
+    median_NonResp = round(med["Non-responder"], 3),
+    median_Resp    = round(med["Responder"], 3),
+    direction      = ifelse(med["Responder"] > med["Non-responder"],
+                            "higher in responders", "higher in non-responders"),
+    wilcox_p       = signif(wt$p.value, 3)
+  )
+}
+
+results <- do.call(rbind, lapply(c("PDCD1", "GEP", "TMB"),
+                                 function(v) summarise_biomarker(df, v)))
+rownames(results) <- NULL
+results
+```
