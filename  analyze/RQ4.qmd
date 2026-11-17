@@ -33,13 +33,13 @@ clinical <- readRDS("../data/clinical.rds")
 all(clinical$sample_id %in% colnames(counts))
 
 # Reorder expression columns to match the phenotype table.
-tpm <- tpm[, match(clinical$sample_id, colnames(counts)), drop = FALSE]
+tpm <- tpm[, match(clinical$sample_id, colnames(tpm)), drop = FALSE]
 
 # Explicitly verify the resulting sample order.
-stopifnot(identical(clinical$sample_id, colnames(counts)))
+stopifnot(identical(clinical$sample_id, colnames(tpm)))
 
-cat("Samples aligned:", ncol(counts), "\n")
-cat("Missing expression values:", sum(is.na(counts)), "\n")
+cat("Samples aligned:", ncol(tpm), "\n")
+cat("Missing expression values:", sum(is.na(tpm)), "\n")
 
 cat("\nResponse distribution:\n")
 print(table(clinical$BOR, useNA = "ifany"))
