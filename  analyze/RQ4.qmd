@@ -140,5 +140,242 @@ summary(GEP_scores)
 ```
 
 ```{r}
+# 3. Are the biomarkers associated with response class?
+#Task 4: Combine the three biomarkers with Response and PFS in a dataframe, visualize their distributions across response groups, and formally test whether biomarker values differ between response classes.
+df <- data.frame(
+  sample = clinical$sample_id,
+  TMB = TMB,
+  PD1 = PD1,
+  GEP_scores = GEP_scores,
+  Response = factor(clinical$BOR)
+)
 
+stopifnot(identical(df$sample, colnames(counts)))
+
+summary(df)
+
+```
+
+```{r}
+TMB_Response_test <- wilcox.test(TMB ~ Response, data = df)
+PD1_Response_test <- wilcox.test(PD1 ~ Response, data = df)
+GEP_Response_test <- wilcox.test(GEP_scores ~ Response, data = df)
+
+TMB_Response_test
+```
+
+```{r}
+PD1_Response_test
+```
+
+```{r}
+GEP_Response_test
+```
+
+```{r}
+plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
+```
+
+```{r}
+plot_Response_boxplot(df, "PD1", "PDCD1 expression", PD1_Response_test)
+```
+
+```{r}
+plot_Response_boxplot(df, "GEP_scores", "T cell–inflamed GEP score", GEP_Response_test)
+```
+
+```{r}
+#| eval: false
+#| include: false
+#| This code Will not be run as we dont have PFS data
+#4. Associations with progression-free survival
+#Task 5: Examine whether TMB, PD-1 expression, and the T cell–inflamed GEP are associated with PFS as a continuous outcome.
+
+TMB_PFS_cor <- cor.test(
+  df$PFS, df$TMB,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+PD1_PFS_cor <- cor.test(
+  df$PFS, df$PD1,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+GEP_PFS_cor <- cor.test(
+  df$PFS, df$GEP_scores,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+TMB_PFS_cor 
+```
+
+## Estimate tumor purity
+
+```{r}
+#5. Estimate tumor purity
+purity <- deconvolute_estimate(counts)
+```
+
+```{r}
+class(purity)
+```
+
+```{r}
+dim(purity)
+```
+
+```{r}
+rownames(purity)
+```
+
+```{r}
+# The ESTIMATE output contains a tumor-purity row.
+# Inspect row names before extracting it rather than relying only on row position.
+purity_row <- grep("purity", rownames(purity), ignore.case = TRUE, value = TRUE)
+
+if (length(purity_row) != 1) {
+  stop("Could not identify exactly one tumor-purity row in the ESTIMATE output.")
+}
+
+tumor_purity <- as.numeric(purity[purity_row, ])
+
+# Preserve the sample identifiers supplied by the deconvolution result.
+names(tumor_purity) <- colnames(purity)
+
+# Reorder purity to match the expression/phenotype sample order.
+tumor_purity <- tumor_purity[colnames(counts)]
+
+stopifnot(identical(names(tumor_purity), colnames(counts)))
+stopifnot(length(tumor_purity) == nrow(df))
+
+summary(tumor_purity)
+```
+
+```{r}
+df$purity <- tumor_purity
+```
+
+```{r}
+#How strongly are the biomarkers related to tumor purity?
+TMB_purity_cor <- cor.test(
+  df$purity, df$TMB,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+PD1_purity_cor <- cor.test(
+  df$purity, df$PD1,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+GEP_purity_cor <- cor.test(
+  df$purity, df$GEP_scores,
+  method = "spearman",
+  exact = FALSE,
+  use = "complete.obs"
+)
+
+TMB_purity_cor
+```
+
+```{r}
+PD1_purity_cor
+```
+
+```{r}
+GEP_purity_cor
+```
+
+```{r}
+plot_association(
+  df, "purity", "TMB",
+  "Tumor purity", "Tumor mutational burden", TMB_purity_cor
+)
+```
+
+```{r}
+plot_association(
+  df, "purity", "PD1",
+  "Tumor purity", "PDCD1 expression", PD1_purity_cor
+)
+```
+
+```{r}
+plot_association(
+  df, "purity", "GEP_scores",
+  "Tumor purity", "T cell–inflamed GEP score", GEP_purity_cor
+)
+```
+
+## **What happens if we adjust expression for tumor purity?**
+
+Note from wee 6:
+
+![](images/clipboard-1166984077.png)
+
+```{r}
+expr_adjusted <- removeBatchEffect(
+  counts,
+  covariates = matrix(df$purity, ncol = 1)
+)
+
+PD1_adjusted <- as.numeric(expr_adjusted["PDCD1", ])
+
+GEP_expr_adjusted <- expr_adjusted[
+  GEP_genes_present,
+  ,
+  drop = FALSE
+]
+
+GEP_expr_adjusted_scaled <- t(scale(t(GEP_expr_adjusted)))
+GEP_scores_adjusted <- colMeans(
+  GEP_expr_adjusted_scaled,
+  na.rm = TRUE
+)
+
+df_adjusted <- data.frame(
+  sample = clinical$sample_id,
+  PD1 = PD1_adjusted,
+  GEP_scores = GEP_scores_adjusted,
+  Response = factor(clinical$BOR)
+)
+
+stopifnot(identical(df_adjusted$sample, colnames(expr_adjusted)))
+```
+
+```{r}
+PD1_Response_adjusted_test <- wilcox.test(PD1 ~ Response, data = df_adjusted)
+GEP_Response_adjusted_test <- wilcox.test(GEP_scores ~ Response, data = df_adjusted)
+
+
+PD1_Response_adjusted_test
+```
+
+```{r}
+GEP_Response_adjusted_test
+```
+
+```{r}
+plot_Response_boxplot(
+  df_adjusted, "PD1",
+  "Purity-adjusted PDCD1 expression",
+  PD1_Response_adjusted_test
+)
+```
+
+```{r}
+plot_Response_boxplot(
+  df_adjusted, "GEP_scores",
+  "Purity-adjusted T cell–inflamed GEP score",
+  GEP_Response_adjusted_test
+)
 ```
