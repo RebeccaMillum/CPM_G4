@@ -468,7 +468,9 @@ head(clean_pathways_df)
 
 top_labels <- clean_pathways_df |>
   filter(group != "Not significant") |>
-  slice_min(padj, n = 10)
+  group_by(group) |>
+  slice_min(padj, n = 5, with_ties = FALSE) |>
+  ungroup()
 
 p <- ggplot(clean_pathways_df, aes(x = NES, y = -log10(padj))) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
