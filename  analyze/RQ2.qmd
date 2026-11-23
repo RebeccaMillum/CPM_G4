@@ -5,7 +5,7 @@ format: html
 
 # RQ2 - Immune-related signatures
 
-Are 18-gene T-cell–inflamed GEP (see D6; Ayers et al. (2017)) associated with treatment response?
+Are 18-gene T-cell–inflamed GEP (see D6; Ayers et al. (2017)) **associated** (NOT RESPONSE + RESPONSE PREDICTION) with treatment response?
 
 Reference: 10.1172/JCI91190
 
@@ -166,6 +166,16 @@ pheatmap(GEP_expression[, ord],
 pheatmap(cor(t(GEP_expression)))
 ```
 
+heatmap: suggest patterns –\> confirm using wilcoxon test
+
+-   standardized expression for each gene + patient
+
+-   some concentration of higher expression in responder group
+
+-   row = genes, cols = patients
+
+-   left tree = hierchal clustering (based on genes with sim patterns)
+
 ## **Q2.2:** Calculate a T-cell–inflamed GEP score for each patient.
 
 -   Standardize each gene across patients (avoid dominating genes)
@@ -211,7 +221,7 @@ summary(GEP_scores)
 head(GEP_scores)
 
 
-# STEP 5: add clinical data
+# STEP 5: add clinical data (building data frame)
 df <- data.frame(
   sample_id = clinical$sample_id,
   BOR = factor(clinical$BOR, levels = c("NR", "R")),
@@ -221,7 +231,7 @@ df <- data.frame(
 #safety check --> confirm scores matches correct patients
 stopifnot(identical(df$sample_id, names(GEP_scores)))
 head(df)
-table(df$BOR)
+table(df$BOR, useNA = "ifany") #add NA column if any present
 
 
 # STEP 6: visualize
@@ -234,3 +244,163 @@ colMeans = average down each col (patients across 18 genes) –\> output = vecto
 NR = 167
 
 R = 25
+
+## **Q2.3**: Investigate whether patients with higher GEP scores are more likely to respond to anti-PD-L1 treatment.
+
+= Compare GEP score to response group
+
+Our df is defined with NR as reference group
+
+Step 1 = overview of medians + quartiles (size + direction of difference) of NR + R groups
+
+Wilcon rank sum test = compare 2 independent groups (without assuming normal distr.) (rec week6)
+
+-   0 hyp: scores in the 2 groups come from the same distribution
+
+```{r}
+# reusing df from 2.3
+
+# STEP 1: Describe each group (extra)
+tapply(df$GEP_score, df$BOR, summary)
+
+
+
+# STEP 2: Test difference between NR and R (wilcoxon rank sum test)
+GEP_test <- wilcox.test(GEP_score ~ BOR, data = df, exact = FALSE)
+
+# STEP 3: Plot difference
+ggplot(df,
+       aes(x= BOR, y = GEP_score)) +
+  geom_boxplot(outlier.shape = NA) + #dont draw outliers twice
+  geom_jitter(width = 0.12, alpha = 0.6) + #add small hori shift to each point
+  annotate("text", x = Inf, y = Inf,
+           label = paste0("p = ", signif(GEP_test$p.value, 3)),
+           hjust = 1.1, vjust = 1.5) + 
+  labs(x = "Response (NR = progressive disease, R = complete response)",
+       y = "T cell inflamed GEP score") + 
+  theme_minimal()
+```
+
+```{r}
+# advanced plot
+
+# Descriptive group labels with patient counts (extra)
+n_per_group <- table(df$BOR)
+group_labels <- c(
+  NR = paste0("Progressive disease (NR)\nn = ", n_per_group["NR"]),
+  R  = paste0("Complete response (R)\nn = ", n_per_group["R"])
+)
+
+group_colours <- c(NR = "#D9534F", R = "#2E86C1")   # red = NR, blue = R
+
+ggplot(df, aes(x = BOR, y = GEP_score, fill = BOR, colour = BOR)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_boxplot(outlier.shape = NA, alpha = 0.25, width = 0.5) +   # don't draw outliers twice
+  geom_jitter(width = 0.12, alpha = 0.7, size = 2) +
+  annotate("text", x = Inf, y = Inf,
+           label = paste0("Wilcoxon p = ", signif(GEP_test$p.value, 3)),
+           hjust = 1.1, vjust = 1.5, colour = "black") +
+  scale_fill_manual(values = group_colours) +
+  scale_colour_manual(values = group_colours) +
+  scale_x_discrete(labels = group_labels) +
+  labs(
+    title = "T-cell–inflamed GEP score by treatment response",
+    subtitle = "Each dot is one patient; dashed line = cohort average (score 0)",
+    x = NULL,
+    y = "T-cell–inflamed GEP score\n(mean z-score of 18 genes)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+```
+
+Plot: Each dot = patient sample, height = patient T cell inflamed GEP score
+
+-   Median of responders are higher than NR =\> responders tend to have higher GEP scores
+
+-   OBS R is smaller than NR (group size)
+
+Adding quantifying step on top of p value estimate (not sure if i should include)
+
+```{r}
+# Prob that a random R patient will have a higher score than a random NR patient
+n_NR <- sum(df$BOR == "NR"); n_R <-  sum(df$BOR == "R")
+
+AUC <- 1 - unname(GEP_test$statistic) / (n_NR * n_R)
+AUC #if 1 = perfect, if 0.5 = no seperation
+
+
+# Odds of response per 1 SD increase in score
+df$GEP_SD <-  as.numeric(scale(df$GEP_score))
+fit <- glm((BOR == "R") ~ GEP_SD, data = df, family = binomial)
+exp(cbind(OR = coef(fit), confint.default(fit)))["GEP_SD", ]
+summary(fit)
+```
+
+AUC = 0.74 =\> some seperation of groups (prob that a random responser has a higher GEP score than a random non responder)
+
+-   AUC = effect size (no validated perf eval, no held out data)
+
+Each 1 SD increase in score –\> \* odds of complete response by 2.4
+
+ODDS ARE NOT PROBS! (odds = p/(1-p))
+
+High inflammed profile scores are associated with higher odds of complete response in our data
+
+"Each one-standard-deviation increase in the T-cell–inflamed score was associated with 2.4-fold higher odds of complete response (OR 2.41, 95% CI 1.50–3.87). The wide interval reflects uncertainty in the effect size, and this is an association within one cohort, not a validated predictor."
+
+## **Q2.4:** Interpret the biological significance of your findings and discuss why a high T- cell–inflamed GEP score does not necessarily guarantee treatment response.
+
+-   Have analyzed patterns in our dataset
+
+    -   Logistic regression: does score + response move together in the data?
+
+    -   odds ratio of
+
+-   In this cohort
+
+-   Associated with (score NOT = response (havent adjusted for confounders eg tumor purity (Q4))
+
+-   Higher odds (not prob)
+
+-   CANNOT conclude higher t cell inflammed GEP scores = predicts individual patient response!
+
+    -   Same data used to find + test pattern
+
+    -   No threshold + no validation (no cut off score for when someone is a likely responder)
+
+Conclusions:
+
+-   Responders have a higher T-cell–inflamed GEP score on average
+
+-   Higher score –\> higher odds of response
+
+Cannot conclude:
+
+-   Score value indicates response
+
+-   Score dictates which patient will respond to treatment
+
+-   If the score would be similar in another cohort
+
+Higher T cell inflammes score = tumor has already activated the interferon gamma driven T cell response (required for checkpoint blockade to work)
+
+The genes are indicative of an inflammed tumour microenvironment.\
+The 18 genes are interferon-gamma marker genes (CD8A, NKG7, CCL5, CXCL9 (chemokine, recruits activated CD8+ effector T cells)), STAT1) and checkpoint or antigen presenting genes (CD274, PDCD1LG2, LAG3, TIGIT, HLA-DRB1, PSMB10)
+
+Chemokine recruits activated CD8+ effector T cells –\> T cells release IFN-gamma –\> raises antigen presentation + checkpoint ligand expression
+
+-   High score = pre existing anti tumor immune response –\> amplified (breaks on this removed) in PD1 therapy
+
+Why high score IS NOT = guaranteed response:
+
+-   The score is 1 dim = measures how MUCH immune response, not if it works
+
+-   T cells can be present but not within the tumor microenv. (stuck in stroma around tumor)
+
+    -   BULK RNA averages all tissues (includes stroma cells etc)
+
+-   Other cells can cancel T cell activation (eg neutrophils, monocytes, macrophages)
+
+-   Tumor cells can be masked from T cells
+
+-   Consider tumour mutational burden + neoantigens
