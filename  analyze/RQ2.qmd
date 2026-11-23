@@ -1,0 +1,236 @@
+---
+title: "RQ2"
+format: html
+---
+
+# RQ2 - Immune-related signatures
+
+Are 18-gene T-cell–inflamed GEP (see D6; Ayers et al. (2017)) associated with treatment response?
+
+Reference: 10.1172/JCI91190
+
+-   Using dataset as is (not filtered etc)
+
+**Suggested tasks:**
+
+-   **Q2.1:** Identify the 18 genes included in the published T-cell–inflamed GEP (gene expression profile) and examine their expression in the dataset.
+
+-   **Q2.2:** Calculate a T-cell–inflamed GEP score for each patient.
+
+-   **Q2.3**: Investigate whether patients with higher GEP scores are more likely to respond to anti-PD-L1 treatment.
+
+-   **Q2.4:** Interpret the biological significance of your findings and discuss why a high T- cell–inflamed GEP score does not necessarily guarantee treatment response.
+
+```{r}
+# Loading packages
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(DESeq2)
+  library(fgsea)
+  library(msigdbr)
+  library(dplyr)
+  library(tidyr)
+  library(gridExtra)
+  library(immunedeconv)
+  library(ggplot2)
+  library(limma)
+  library(pheatmap)
+})
+# garbage collection
+gc()
+
+# Load datasets
+counts <- readRDS("../data/counts.rds")
+tpm <- readRDS("../data/tpm.rds")
+clinical <- readRDS("../data/clinical.rds")
+```
+
+```{r}
+# checking distribution - is it neg bion?
+head(counts)
+sample_id <- colnames(counts)[10] #choose the 10th column as sample
+
+#Check that this sample is also present in the TPM data
+sample_id %in% colnames(tpm) #results = TRUE, its present
+
+#extract the sample_id column + all its rows (,)
+#wrap vector in data frame --> name column in it expression
+df_counts <- data.frame( expression = counts[, sample_id] )
+
+p1 <- ggplot(df_counts, aes(x = expression)) +
+  geom_histogram(
+    bins = 50,
+    fill = "pink",
+    color = "black",
+    linewidth = 0.3
+    ) + 
+  labs(
+    title = "Raw counts",
+    subtitle = sample_id,
+    x = "Raw counts",
+    y = "Number of genes" 
+    ) +
+  theme_classic(base_size = 13)
+
+#PRINT NOT SHOWING! Restarted and then it worked (Restart + terminate + new sesh) 
+print(p1)
+
+#log2 transformation
+p2 <- ggplot(df_counts, aes(x = log2(expression + 1))) + 
+  geom_histogram(
+    bins = 50,
+    fill = "lightseagreen",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  labs(
+    title = "Log2-transformed counts",
+    subtitle = sample_id,
+    x = "log2(count + 1)",
+    y = "Number of genes"
+  ) +
+  theme_classic(base_size = 13)
+  
+p2
+
+#Displaying p1 and p2 side by side library(gridExtra) grid.arrange(p1, p2, ncol = 2)
+grid.arrange(p1, p2, ncol = 2)
+```
+
+## Q1: Identify the 18 genes included in the published T-cell–inflamed GEP (gene expression profile) and examine their expression in the dataset.
+
+```{r}
+# STEP 1: create panel
+GEPs <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E")
+
+# checking we have 18 genes
+length(GEPs)
+
+# assessing dataset genes
+all_genes <- rownames(tpm)
+length(all_genes)
+
+# checking gene name format
+head(all_genes)
+
+
+
+# STEP 2: Align tpm to clinical table
+clinical <- clinical[clinical$BOR %in% c("NR", "R"), ]
+tpm <-  tpm[, clinical$sample_id]
+stopifnot(identical(colnames(tpm), as.character(clinical$sample_id)))
+    
+
+      
+# STEP 3: Checking GEPs are present in dataset
+GEPs %in% rownames(tpm)
+GEPs[GEPs %in% rownames(tpm)]
+
+
+
+# STEP 4: Extract + logtransform g.expression
+# IMPORTANT TO LOG TRANSFORM (visualization + scoring)
+GEP_expression <- log2(tpm[GEPs, , drop = FALSE] +1)
+dim(GEP_expression) # 192 patients
+
+
+
+#STEP 5: Checking expression
+# per gene
+summary(t(GEP_expression))
+
+# median expression per gene
+apply(GEP_expression, 1, median)
+
+# checking low counts (how many patients have an expression value = 0, per gene)
+rowSums(GEP_expression == 0)
+```
+
+Most genes are expressed in most patients, except HLA-DQA1 (absent in 129 patients!)
+
+```{r}
+# STEP 6: Visualize
+annotation <- data.frame(Response = clinical$BOR,
+                         row.names = clinical$sample_id)
+
+ord <- order(clinical$BOR)
+
+pheatmap(GEP_expression[, ord],
+         #standardize each gene ACROSS patients
+         scale = "row",      
+         annotation_col = annotation[ord, , drop = FALSE],
+         cluster_cols = FALSE,
+         show_colnames = FALSE)
+
+#checking correlation of genes
+pheatmap(cor(t(GEP_expression)))
+```
+
+## **Q2.2:** Calculate a T-cell–inflamed GEP score for each patient.
+
+-   Standardize each gene across patients (avoid dominating genes)
+
+-   average across the 18 genes per patient (1 nr per patient –\> if high =\> more inflammed compared to other patients)
+
+-   day 6
+
+```{r}
+# STEP 1: confirming data
+dim(GEP_expression)
+
+stopifnot(identical(colnames(GEP_expression),
+                    as.character(clinical$sample_id)))
+
+# STEP 2: Check no gene is constant (0 var cant be standardized)
+gene_sd <- apply(GEP_expression, 1, sd)
+gene_sd
+any(gene_sd == 0)
+
+
+```
+
+No constant genes –\> continue to standardization
+
+scale = standardize cols (have to transpose t(), as genes are rows)
+
+transpose gene expression –\> scale –\> transpose back again (genes = rows)
+
+```{r}
+# STEP 3: Standardize across patients
+GEP_scaled <- t(scale(t(GEP_expression)))
+
+# checking standarzation 
+round(rowMeans(GEP_scaled), 10) #mean of 0
+apply(GEP_scaled, 1, sd) #sd of 1
+
+# STEP 4: Average ACROSS genes
+GEP_scores <- colMeans(GEP_scaled)
+
+length(GEP_scores)
+summary(GEP_scores)
+head(GEP_scores)
+
+
+# STEP 5: add clinical data
+df <- data.frame(
+  sample_id = clinical$sample_id,
+  BOR = factor(clinical$BOR, levels = c("NR", "R")),
+  GEP_score = GEP_scores
+)
+
+#safety check --> confirm scores matches correct patients
+stopifnot(identical(df$sample_id, names(GEP_scores)))
+head(df)
+table(df$BOR)
+
+
+# STEP 6: visualize
+hist(df$GEP_score, breaks = 20, main = "GEP_score distribution")
+tapply(df$GEP_score, df$BOR, median)
+```
+
+colMeans = average down each col (patients across 18 genes) –\> output = vector with l = 192
+
+NR = 167
+
+R = 25
