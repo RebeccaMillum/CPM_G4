@@ -1,0 +1,527 @@
+---
+title: "RQ1"
+format:
+  html:
+    embed-resources: true
+    toc: true
+execute:
+  message: false
+---
+
+# RQ1 — Differential expression
+
+### Which genes are differentially expressed between patients with complete response and patients with progressive disease following anti-PD-L1 treatment?
+
+Suggested tasks:
+
+-   Prepare and explore the gene-expression data, including appropriate filtering and normalization.
+
+-   Perform differential expression analysis between responders/non-responder using DESeq2, and identify significantly differentially expressed genes
+
+-   Visualize the results using e.g. volcano plots and heatmaps of selected genes.
+
+-   Investigate the biological functions of differentially expressed genes and discuss their potential relevance to immunotherapy response.
+
+-   Discuss the limitations of the analysis, including potential confounding factors and why differential expression does not necessarily imply a causal role in treatment response.
+
+## 1. Data preparation
+
+### Load packages and data
+
+```{r}
+#| label: setup
+
+# Load order matters: tidyverse (dplyr) is loaded last so that dplyr::select,
+# filter and slice are not masked by AnnotationDbi / IRanges / BiocGenerics.
+library(DESeq2)
+library(fgsea)
+library(msigdbr)
+library(data.table)
+library(pheatmap)
+library(ggrepel)
+library(tidyverse)
+
+# Significance threshold used throughout the document
+padj_cut <- 0.05
+
+# Helper: "GOBP_CELL_MIGRATION" -> "Cell migration" (optionally wrapped)
+clean_label <- function(x, width = NULL) {
+  x <- x |>
+    str_remove("^GOBP_") |>
+    str_replace_all("_", " ") |>
+    str_to_sentence()
+  if (is.null(width)) x else str_wrap(x, width = width)
+}
+
+# Load datasets
+counts   <- readRDS("../data/counts.rds")
+clinical <- readRDS("../data/clinical.rds")
+```
+
+### Check that samples match
+
+```{r}
+# Samples must be identical and in the same order in both datasets
+stopifnot(identical(colnames(counts), clinical$sample_id))
+
+clinical <- as.data.frame(clinical)
+rownames(clinical) <- clinical$sample_id
+stopifnot(identical(colnames(counts), rownames(clinical)))
+
+dim(counts)             # genes x samples
+head(rownames(counts))  # should be gene symbols (needed to match MSigDB later)
+```
+
+All samples are present in both datasets and in the same order, so no filtering of samples is needed.
+
+### Response as a two-level factor
+
+```{r}
+# NR is the reference level, so a positive log2 fold change
+# (and a positive NES later on) means "higher in responders (R)".
+clinical$BOR <- factor(clinical$BOR, levels = c("NR", "R"))
+stopifnot(!anyNA(clinical$BOR))   # fails if BOR contained any other category
+
+table(clinical$BOR)
+```
+
+**\[TODO: Define the groups. Which RECIST categories make up responders (R) and non-responders (NR)? For example R = CR (and PR?) and NR = PD (and SD?). State if any patients were excluded and give the final group sizes.\]**
+
+## 2. Differential expression with DESeq2
+
+### Build the DESeq2 dataset and filter low-count genes
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData   = clinical,  # sample metadata
+                              design    = ~ BOR)     # R vs NR
+
+n_genes_before <- nrow(dds)
+
+# Keep genes with at least 10 reads in total across all samples
+dds <- dds[rowSums(counts(dds)) >= 10, ]
+n_genes_after <- nrow(dds)
+
+c(before = n_genes_before, after = n_genes_after)
+```
+
+### Run DESeq2 and extract results
+
+DESeq2 normalizes the counts internally with the median-of-ratios method (size factors), so the raw counts are used as input.
+
+```{r}
+dds <- DESeq(dds)
+resultsNames(dds)   # expect "BOR_R_vs_NR"
+
+# Contrast written out explicitly: positive log2FC = higher in R
+res <- results(dds, contrast = c("BOR", "R", "NR"), alpha = padj_cut)
+summary(res)
+```
+
+```{r}
+res_tbl <- as.data.frame(res) |>
+  rownames_to_column("gene") |>
+  as_tibble() |>
+  drop_na(padj, log2FoldChange) |>
+  mutate(
+    group = case_when(
+      padj < padj_cut & log2FoldChange > 0 ~ "Up in responders",
+      padj < padj_cut & log2FoldChange < 0 ~ "Up in non-responders",
+      TRUE ~ "Not significant"
+    )
+  )
+
+n_tested <- nrow(res_tbl)
+n_up     <- sum(res_tbl$group == "Up in responders")
+n_down   <- sum(res_tbl$group == "Up in non-responders")
+
+# Top 10 genes by adjusted p-value
+res_tbl |>
+  filter(group != "Not significant") |>
+  arrange(padj) |>
+  select(gene, group, baseMean, log2FoldChange, padj) |>
+  head(10)
+```
+
+Of the `r n_tested` genes with an adjusted p-value, `r n_up` were significantly higher in responders and `r n_down` were significantly higher in non-responders (BH-adjusted p < `r padj_cut`).
+
+**\[TODO: Comment on the number of DE genes. Is it large or small given the sample size? Mention the top genes and what they do.\]**
+
+### Sample-level overview (PCA)
+
+```{r}
+# Variance-stabilising transformation for visualisation only (not used for the DE test)
+vsd <- vst(dds, blind = TRUE)
+
+plotPCA(vsd, intgroup = "BOR") +
+  scale_color_manual(values = c(NR = "steelblue", R = "firebrick")) +
+  labs(title = "PCA of variance-stabilised counts") +
+  theme_minimal()
+```
+
+**\[TODO: Do responders and non-responders separate on PC1/PC2? If not, say so. Optionally colour by other clinical variables (e.g. tumour type, sex, batch) with `intgroup = c("BOR", "<variable>")` to look for confounders.\]**
+
+### Volcano plot
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+# Label the 5 most significant genes in each direction
+gene_labels <- res_tbl |>
+  filter(group != "Not significant") |>
+  group_by(group) |>
+  slice_min(padj, n = 5, with_ties = FALSE) |>
+  ungroup()
+
+ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point(aes(color = group), alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
+  scale_color_manual(
+    name = NULL,
+    values = c("Up in responders"     = "firebrick",
+               "Up in non-responders" = "steelblue",
+               "Not significant"      = "grey80")
+  ) +
+  geom_text_repel(data = gene_labels, aes(label = gene),
+                  size = 3, max.overlaps = Inf, box.padding = 0.4) +
+  annotate("text", x = Inf, y = 0, label = "Higher in responders \u2192",
+           hjust = 1.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = "firebrick") +
+  annotate("text", x = -Inf, y = 0, label = "\u2190 Higher in non-responders",
+           hjust = -0.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = "steelblue") +
+  labs(x = "Log2 fold change (R vs NR)",
+       y = "-Log10 adjusted p-value",
+       title = "Differential expression: responders vs non-responders") +
+  theme_minimal()
+```
+
+*Figure: Volcano plot of the DESeq2 results. Coloured points have an adjusted p-value below `r padj_cut`. The five most significant genes in each direction are labelled.*
+
+### Heatmap of the top differentially expressed genes
+
+```{r}
+#| fig-width: 8
+#| fig-height: 7
+
+top_genes <- res_tbl |>
+  filter(group != "Not significant") |>
+  slice_min(padj, n = 30, with_ties = FALSE) |>
+  pull(gene)
+
+if (length(top_genes) >= 2) {
+  mat <- assay(vsd)[top_genes, ]
+  ann <- as.data.frame(colData(vsd)[, "BOR", drop = FALSE])
+
+  pheatmap(mat,
+           scale             = "row",   # z-score per gene
+           annotation_col    = ann,
+           annotation_colors = list(BOR = c(NR = "steelblue", R = "firebrick")),
+           color             = colorRampPalette(c("steelblue", "white", "firebrick"))(100),
+           show_colnames     = FALSE,
+           main              = "Top 30 DE genes (VST, row z-score)")
+}
+```
+
+*Figure: Heatmap of the 30 most significant genes. Samples (columns) are clustered by expression and the bar at the top shows their response group.*
+
+**\[TODO: Do the samples cluster by response group? Which gene groups can you see (e.g. immune genes vs stromal genes)?\]**
+
+## 3. Gene set enrichment analysis (GSEA)
+
+Gene-level tests only look at individual genes. GSEA asks whether whole biological processes are shifted towards one group, which is more robust when many genes change a little.
+
+### Gene sets and gene ranking
+
+```{r}
+# GO Biological Process gene sets from MSigDB.
+# (msigdbr >= 10 uses collection/subcollection, older versions category/subcategory)
+gene_sets <- if (packageVersion("msigdbr") >= "10.0.0") {
+  msigdbr(species = "Homo sapiens", collection = "C5", subcollection = "GO:BP")
+} else {
+  msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")
+}
+
+pathways <- split(gene_sets$gene_symbol, gene_sets$gs_name) |>
+  lapply(unique)
+length(pathways)
+
+# Rank all genes by the DESeq2 Wald statistic (sign = direction, size = confidence).
+# If a symbol occurs more than once, keep the row with the strongest statistic.
+ranked_df <- tibble(gene = rownames(res), stat = res$stat) |>
+  filter(!is.na(stat), !is.na(gene), gene != "") |>
+  arrange(desc(abs(stat))) |>
+  distinct(gene, .keep_all = TRUE)
+
+ranked_genes <- sort(setNames(ranked_df$stat, ranked_df$gene), decreasing = TRUE)
+
+# Sanity checks on the ranked list
+tibble(
+  n_ranked_genes = length(ranked_genes),
+  n_in_GOBP      = sum(names(ranked_genes) %in% gene_sets$gene_symbol),
+  pct_ties       = 100 * mean(duplicated(ranked_genes))
+)
+```
+
+### Run fgsea
+
+```{r}
+set.seed(42)   # reproducible permutations
+fgsea_res <- fgseaMultilevel(pathways = pathways,
+                             stats    = ranked_genes,
+                             minSize  = 15,
+                             maxSize  = 500)
+
+fgsea_res <- fgsea_res[order(padj)]
+fgsea_tbl <- as_tibble(fgsea_res)
+
+n_pw_tested <- nrow(fgsea_tbl)
+n_pw_sig    <- sum(fgsea_tbl$padj < padj_cut, na.rm = TRUE)
+
+fgsea_tbl |>
+  select(pathway, NES, padj, size) |>
+  head(20)
+```
+
+`r n_pw_tested` GO biological processes (15-500 genes) were tested, and `r n_pw_sig` were significant (BH-adjusted p < `r padj_cut`). A positive NES means the pathway is enriched in responders, a negative NES in non-responders.
+
+### Top enriched pathways (before collapsing)
+
+```{r}
+#| fig-width: 9
+
+top_pathways_df <- fgsea_tbl |>
+  mutate(direction = if_else(NES > 0,
+                             "Enriched in responders",
+                             "Enriched in non-responders")) |>
+  group_by(direction) |>
+  slice_min(padj, n = 5, with_ties = FALSE) |>
+  ungroup() |>
+  mutate(label = clean_label(pathway, width = 30))
+
+ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, color = "grey30") +
+  scale_fill_manual(
+    name = NULL,
+    values = c("Enriched in responders"     = "firebrick",
+               "Enriched in non-responders" = "steelblue")
+  ) +
+  labs(x = "Normalized enrichment score (NES)",
+       y = NULL,
+       title = "Top enriched GO biological processes",
+       subtitle = "Top 5 per direction by adjusted p-value, ordered by NES") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor   = element_blank(),
+        legend.position    = "bottom",
+        plot.title         = element_text(face = "bold"),
+        plot.title.position = "plot")
+```
+
+GO terms overlap heavily, so the top hits are often near-duplicates of each other (e.g. several terms about cell adhesion). The next step collapses them into independent themes.
+
+### Collapse redundant pathways
+
+```{r}
+#| warning: false
+set.seed(42)
+
+sig <- fgsea_res[padj < padj_cut][order(pval, -abs(NES))]
+collapsedPathways <- collapsePathways(sig, pathways, ranked_genes, nperm = 1000)
+
+main_pathways <- collapsedPathways$mainPathways
+n_sig  <- nrow(sig)
+n_main <- length(main_pathways)
+```
+
+Of the `r n_sig` significant pathways, `r n_main` were kept as independent main pathways. The others are largely explained by one of these main pathways.
+
+```{r}
+# Which pathways were absorbed by each main pathway?
+parents  <- collapsedPathways$parentPathways
+children <- tibble(pathway = names(parents), parent = parents) |>
+  filter(!is.na(parent))
+
+children |>
+  group_by(parent) |>
+  summarise(n_absorbed = n(),
+            examples   = paste(head(pathway, 4), collapse = "; ")) |>
+  arrange(desc(n_absorbed))
+```
+
+```{r}
+# Statistics for the main (collapsed) pathways only
+main_tbl <- fgsea_tbl |>
+  filter(pathway %in% main_pathways) |>
+  mutate(direction = if_else(NES > 0,
+                             "Enriched in responders",
+                             "Enriched in non-responders"),
+         label = clean_label(pathway))
+
+main_tbl |> count(direction)
+
+# Top 10 main pathways per direction
+main_tbl |>
+  group_by(direction) |>
+  slice_min(padj, n = 10, with_ties = FALSE) |>
+  ungroup() |>
+  arrange(direction, padj) |>
+  select(label, direction, NES, padj, size)
+```
+
+In non-responders, the enriched pathways are dominated by stromal and tissue-remodelling programmes, including cell adhesion, cell migration, vasculature development and wound healing.
+
+**\[TODO: Describe the pathways enriched in responders (e.g. interferon-gamma response, antigen presentation, T-cell activation, if they appear) and discuss how the picture fits an immune-inflamed vs immune-excluded tumour microenvironment.\]**
+
+### GSEA table for the main pathways
+
+```{r}
+#| fig-width: 12
+#| fig-height: 8
+
+top_main_up <- main_tbl |>
+  filter(NES > 0) |>
+  slice_min(padj, n = 10, with_ties = FALSE) |>
+  pull(pathway)
+
+top_main_down <- main_tbl |>
+  filter(NES < 0) |>
+  slice_min(padj, n = 10, with_ties = FALSE) |>
+  pull(pathway)
+
+# gseaParam = 0.5 only affects how the plot is drawn, not the statistics
+plotGseaTable(pathways[c(top_main_up, rev(top_main_down))],
+              stats     = ranked_genes,
+              fgseaRes  = fgsea_res,
+              gseaParam = 0.5)
+```
+
+### Enrichment plots for the top main pathway in each direction
+
+```{r}
+top_up <- main_tbl |>
+  filter(NES > 0) |>
+  slice_min(padj, n = 1, with_ties = FALSE) |>
+  pull(pathway)
+
+top_down <- main_tbl |>
+  filter(NES < 0) |>
+  slice_min(padj, n = 1, with_ties = FALSE) |>
+  pull(pathway)
+
+plot_pw <- function(pw) {
+  es <- fgsea_tbl$ES[fgsea_tbl$pathway == pw]
+  plotEnrichment(pathways[[pw]], ranked_genes, ticksSize = 0.08) +
+    labs(title = clean_label(pw, width = 60)) +
+    coord_cartesian(ylim = sort(c(0, es)) + c(-0.1, 0.1))
+}
+
+# Loop + print() so that a direction without any main pathway is simply skipped
+for (pw in c(top_up, top_down)) print(plot_pw(pw))
+```
+
+### Volcano plot of the collapsed pathways
+
+```{r}
+#| fig-width: 12
+#| fig-height: 8
+
+# All collapsed (independent) main pathways, not only the top 10 per direction
+nes_df <- main_tbl |>
+  mutate(
+    label = clean_label(pathway, width = 40),
+    group = case_when(
+      padj < padj_cut & NES > 0 ~ "Up in responders",
+      padj < padj_cut & NES < 0 ~ "Up in non-responders",
+      TRUE ~ "Not significant"
+    )
+  ) |>
+  arrange(group != "Not significant")   # draw significant points on top
+
+# Label the 5 most significant main pathways in each direction
+nes_labels <- nes_df |>
+  filter(group != "Not significant") |>
+  group_by(group) |>
+  slice_min(padj, n = 5, with_ties = FALSE) |>
+  ungroup()
+
+p <- ggplot(nes_df, aes(x = NES, y = -log10(padj))) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
+  geom_point(aes(size = size, fill = group),
+             shape = 21, colour = "white", stroke = 0.35, alpha = 0.7) +
+  scale_color_manual(
+    name = NULL,
+    values = c("Up in responders"     = "firebrick",
+               "Up in non-responders" = "steelblue",
+               "Not significant"      = "grey80"),
+    aesthetics = c("color", "fill")
+  ) +
+  scale_size_continuous(name = "Gene set size", range = c(1, 6)) +
+  geom_label_repel(
+    data = nes_labels,
+    aes(label = label, colour = group),
+    size = 2.9, lineheight = 0.9, fontface = "bold",
+    fill = alpha("white", 0.7), label.size = 0.25,
+    label.r = unit(0.2, "lines"), label.padding = unit(0.25, "lines"),
+    box.padding = 0.6, point.padding = 0.4, min.segment.length = 0,
+    segment.size = 0.35, segment.curvature = -0.15, segment.ncp = 3,
+    segment.inflect = TRUE, max.overlaps = Inf, seed = 42,
+    show.legend = FALSE
+  ) +
+  annotate("text", x = Inf, y = 0, label = "Higher in responders \u2192",
+           hjust = 1.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = "firebrick") +
+  annotate("text", x = -Inf, y = 0, label = "\u2190 Higher in non-responders",
+           hjust = -0.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = "steelblue") +
+  guides(
+    fill = guide_legend(order = 1,
+                        override.aes = list(size = 4, alpha = 1)),
+    size = guide_legend(order = 2,
+                        override.aes = list(fill = "grey60", colour = "grey40",
+                                            alpha = 0.7))
+  ) +
+  labs(x = "Normalized enrichment score (NES)",
+       y = expression(-log[10]~"(adjusted p-value)"),
+       title = "Gene-set enrichment of collapsed pathways: responders vs non-responders") +
+  theme_minimal(base_size = 12) +
+  theme(plot.title.position = "plot",
+        legend.position     = "top",
+        plot.title          = element_text(face = "bold", size = 17))
+
+p
+
+dir.create("images", showWarnings = FALSE)
+ggsave("images/gsea_volcano.pdf", p, width = 12, height = 8, device = cairo_pdf)
+```
+
+*Figure: Each point is one of the `r n_main` independent (collapsed) GO biological processes. Point size shows the number of genes in the set and colour shows the direction of enrichment. All collapsed pathways were selected among the significant ones, so all points lie above the significance line.*
+
+## 4. Discussion
+
+### Biological interpretation
+
+**\[TODO: Summarise the main DE genes and enriched pathways in 1-2 paragraphs. Which biological processes distinguish responders from non-responders, and how do they relate to what is known about anti-PD-L1 response? For example: an interferon-gamma / T-cell inflamed signature is generally associated with response, while stromal, TGF-beta and tissue-remodelling programmes are associated with immune exclusion and resistance. Only mention what your results actually show, and cite literature.\]**
+
+### Limitations
+
+-   **Sample size.** **\[TODO: n per group.\]** With few patients, the analysis has limited power and the estimated fold changes are noisy. The comparison between clearly defined response groups also ignores patients with intermediate outcomes.
+-   **Confounding.** The model only contains response (`~ BOR`). Differences in tumour type, biopsy site, tumour purity, prior therapy, age, sex or sequencing batch could create expression differences that are unrelated to response. These should be included in the design if available.
+-   **Bulk RNA-seq.** Expression is averaged over all cells in the sample. A difference in a gene can reflect a different cell composition (e.g. more fibroblasts or more T cells) rather than changed regulation within a cell type.
+-   **Correlation, not causation.** Differential expression shows that a gene is associated with response, not that it causes it. Genes can be a consequence of the response, of the tumour microenvironment, or of an unmeasured third factor.
+-   **No validation.** The results come from a single cohort and were not tested in an independent dataset.
+-   **Gene set analysis.** GO terms are redundant and unevenly annotated. Collapsing reduces this, but the result still depends on the gene ranking, the size limits (15-500 genes) and the database version.
+
+## 5. Conclusion
+
+**\[TODO: 2-3 sentences that answer the research question: which genes and processes differ between responders and non-responders, and how confident are you in this?\]**
+
+## Session info
+
+```{r}
+sessionInfo()
+```

@@ -188,7 +188,7 @@ top_labels <- res_df_2 |>
   slice_min(padj, n = 5, with_ties = FALSE) |>
   ungroup()
 
-ggplot(res_df_2, aes(x = log2FoldChange, y = -log10(padj))) +
+deseq_volcano <- ggplot(res_df_2, aes(x = log2FoldChange, y = -log10(padj))) +
   geom_point(aes(color = group)) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
   geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "grey40") +
@@ -217,6 +217,8 @@ ggplot(res_df_2, aes(x = log2FoldChange, y = -log10(padj))) +
        y = "-Log10 Adjusted P-value",
        title = "Volcano Plot") +
   theme_minimal()
+
+ggsave("images/deseq_volcano.pdf", deseq_volcano, width = 8, height = 5, device = cairo_pdf)
 ```
 
 ## **GSEA**
@@ -308,7 +310,7 @@ top_pathways_df <- fgsea_res |>
            str_to_sentence() |>
            str_wrap(width = 30))            # wrap long names
 
-ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction)) +
+enriched_pathways_plot <- ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction)) +
   geom_col(width = 0.7) +
   geom_vline(xintercept = 0, color = "grey30") +
   scale_fill_manual(
@@ -326,6 +328,8 @@ ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction))
         legend.position = "bottom",
         plot.title = element_text(face = "bold"),
         plot.title.position = "plot")
+
+ggsave("images/gsea_top_enriched_pathways.pdf", enriched_pathways_plot, width = 12, height = 6, device = cairo_pdf)
 ```
 
 #### Top enriched pathways
@@ -417,6 +421,7 @@ top_mainpathways_df <- fgsea_res[pathway %in% collapsedPathways$mainPathways & p
 top_mainpathways_df %>% select(label, direction, NES, padj) %>% filter(NES < 0)
 top_mainpathways_df %>% select(label, direction, NES, padj) %>% filter
 
+top_mainpathways_df
 ```
 
 #### Plot top and bottom pathway
