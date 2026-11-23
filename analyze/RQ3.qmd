@@ -10,7 +10,12 @@ editor: visual
 
 # Comparing PD-1, T-cell-inflamed GEP and TMB – how they relate to immunotherapy response
 
-## 
+tasks:
+
+1.  Visualize the distribution of each biomarker in responders vs non-responders (boxplots).
+2.  Test whether each biomarker differs significantly between response groups.
+3.  Compare the direction and magnitude of the differences, and discuss which biomarkers show stronger associations.
+4.  Explain the biological information captured by each biomarker and discuss strengths and limitations.
 
 ## Load the libraries + data
 
@@ -43,8 +48,8 @@ non_responder_values <- c("NR")
 
 # TMB column in clinical
 tmb_col <- "TMB"
-
-# log2 transformation, because TPM is raw data
+#tpm 
+# TPM is normalized (gene length + depth) but on a LINEAR scale, so we log2 it
 log_transform_tpm <- TRUE
 ```
 
@@ -82,7 +87,7 @@ if (log_transform_tpm) expr <- log2(expr + 1)
 stopifnot("PDCD1" %in% rownames(expr))
 pd1 <- as.numeric(expr["PDCD1", ])
 
-# T-cell-inflamed GEP
+# T-cell-inflamed GEP- from article 
 gep_genes <- c("CCL5", "CD27", "CD274", "CD276", "CD8A", "CMKLR1", "CXCL9",
                "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3",
                "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
@@ -121,16 +126,17 @@ Each biomarker in response groups + Wilcoxon test
 
 ```{r}
 # boxplot + jitter + p-value from Wilcoxon test
+
 plot_biomarker <- function(data, var, ylab) {
   d  <- data[!is.na(data[[var]]), ]
   wt <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
   
   ggplot(d, aes(x = Response, y = .data[[var]], fill = Response)) +
     geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.12, alpha = 0.6, size = 1.4) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 1) +
     annotate("text", x = Inf, y = Inf,
-             label = paste0("Wilcoxon p = ", signif(wt$p.value, 3)),
-             hjust = 1.1, vjust = 1.4) +
+             label = paste0("Wilcoxon p = ", signif(wt$p.value, 2)),
+             hjust = 1, vjust = 1) +
     guides(fill = "none") +
     labs(x = NULL, y = ylab) +
     theme_classic(base_size = 12)
@@ -140,19 +146,19 @@ p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), log2(TPM+1)")
 p_gep <- plot_biomarker(df, "GEP",   "T-cell-inflamed GEP score")
 p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
 
+
 p_pd1 + p_gep + p_tmb   # 3 panels next to each other
 ```
 
 ## Table with results
 
-Direction + size + p-value
+For each biomarker we report the group mediansnd and the Wilcoxon p-value
 
 ```{r}
 summarise_biomarker <- function(data, var) {
   d   <- data[!is.na(data[[var]]), ]
   med <- tapply(d[[var]], d$Response, median)
   wt  <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
-  
   data.frame(
     Biomarker      = var,
     n_NonResponder = sum(d$Response == "Non-responder"),
