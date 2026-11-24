@@ -151,13 +151,15 @@ Comment on the number of DE genes. Is it large or small given the sample size? M
 
 ```{r}
 # Variance-stabilising transformation for visualisation only (not used for the DE test)
-vsd <- vst(dds, blind = TRUE)
+vsd <- vst(dds, blind = TRUE) # could also have been log2 transformation, vst is build specifically for rna seq count data
 
-plotPCA(vsd, intgroup = "BOR") +
+pca <- plotPCA(vsd, intgroup = "BOR") +
   scale_color_manual(values = c(NR = "steelblue", R = "firebrick")) +
   labs(title = "PCA of variance-stabilised counts") +
   theme_minimal()
+pca
 
+ggsave("images/pca.pdf", pca, width = 10, height = 6, device = cairo_pdf)
 ```
 
 #### Interpretation
@@ -205,7 +207,7 @@ ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
 
 *Figure: Volcano plot of the DESeq2 results. Coloured points have an adjusted p-value below `padj_cut`. The five most significant genes in each direction are labelled.*
 
-#### Interpretation 
+#### Interpretation
 
 Consider not the most significant but the most out Log2FC's
 
@@ -519,7 +521,7 @@ dir.create("images", showWarnings = FALSE)
 ggsave("images/gsea_volcano.pdf", p, width = 10, height = 6, device = cairo_pdf)
 ```
 
-*Figure: Each point is one of the `r n_main` independent (collapsed) GO biological processes. Point size shows the number of genes in the set and colour shows the direction of enrichment. All collapsed pathways were selected among the significant ones, so all points lie above the significance line.*
+*Figure: Each point is one of the `n_main` independent (collapsed) GO biological processes. Point size shows the number of genes in the set and colour shows the direction of enrichment. All collapsed pathways were selected among the significant ones, so all points lie above the significance line.*
 
 ## Session info
 
