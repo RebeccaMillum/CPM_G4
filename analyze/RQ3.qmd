@@ -134,21 +134,23 @@ plot_biomarker <- function(data, var, ylab) {
   wt <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
   ggplot(d, aes(x = Response, y = .data[[var]], fill = Response)) +
     geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.12, alpha = 0.6, size = 1.4) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 1.2) +
     scale_fill_manual(values = group_colours) +
-    annotate("text", x = Inf, y = Inf,
-             label = paste0("Wilcoxon p = ", signif(wt$p.value, 3)),
-             hjust = 1.1, vjust = 1.4) +
+    # short x-axis labels so they don't overlap
+    scale_x_discrete(labels = c("Non-responder" = "NR", "Responder" = "R")) +
     guides(fill = "none") +
-    labs(x = NULL, y = ylab) +
-    theme_classic(base_size = 12)
+    labs(x = NULL, y = ylab,
+         subtitle = paste0("Wilcoxon p = ", signif(wt$p.value, 3))) +
+    theme_classic(base_size = 11) +
+    theme(plot.subtitle = element_text(size = 9))
 }
 
 p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), log2(TPM+1)")
 p_gep <- plot_biomarker(df, "GEP",   "T-cell–inflamed GEP score")
 p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
 
-p_pd1 + p_gep + p_tmb   # 3 panels next to each other
+combined_plot <- p_pd1 + p_gep + p_tmb   # 3 panels next to each other
+combined_plot
 ```
 
 ## Table with results
@@ -190,4 +192,21 @@ when it comes to investigate biological meaning- each biomarker reflects a diffe
 
 Limitations: these are group level associations in baseline samples, not balidated predictive biomarkers, so some of them overlap. Groups are strongly imbalanced between responders and nonresponders
 
-To sum up, all three biomarkers are associated with response, with the strongest and largest relative effect for TMB and the cleanest group separation for GEP, but the overlapping distributions, imbalanced mean these should be interpreted as associations rather than clinically actionable predictors.
+To sum up, all three biomarkers are associated with response, with the strongest and largest relative effect for TMB and the cleanest group separation for GEP, but the overlapping distributions, imbalanced mean these should be interpreted as associations rather than clinically actionable predictors..
+
+### save the output
+
+```{r}
+# 3 panles from boxplot
+out_dir <- "figures"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# 1. Boxplot figure (the combined 3-panel plot)
+ggsave(file.path(out_dir, "RQ3_biomarkers_boxplots.png"),
+       combined_plot, width = 10, height = 4, dpi = 300, bg = "white")
+# table as jpg
+library(gridExtra)
+png(file.path(out_dir, "RQ3_results_table.png"), width = 1400, height = 400, res = 200)
+grid.table(results, rows = NULL)
+dev.off()
+```
