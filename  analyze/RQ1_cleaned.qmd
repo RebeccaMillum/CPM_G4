@@ -140,7 +140,13 @@ n_down   <- sum(res_tbl$group == "Up in non-responders")
 res_tbl |>
   filter(group != "Not significant") |>
   arrange(padj) |>
-  select(gene, group, baseMean, log2FoldChange, padj) |>
+  select(gene, group, log2FoldChange, padj, baseMean) |>
+  head(10)
+
+res_tbl |>
+  filter(group != "Not significant") |>
+  arrange(log2FoldChange) |>
+  select(gene, group, log2FoldChange, padj, baseMean) |>
   head(10)
 ```
 
@@ -171,20 +177,26 @@ Not divided by response, not the main driver of seperation (age, sex, batch effe
 
 29% variance explained
 
-### Volcano plot
+### Volcano plot (top 5 numeric largest Log2FC scores for both groups)
 
 ```{r}
 #| fig-width: 8
 #| fig-height: 6
 
-# Label the 5 most significant genes in each direction
+# Label the 5 genes with the highest log2FC in each direction
 gene_labels <- res_tbl |>
   filter(group != "Not significant") |>
   group_by(group) |>
-  slice_min(padj, n = 5, with_ties = FALSE) |>
+  slice_min(
+    if_else(group == "Up in responders",
+            -log2FoldChange,
+            log2FoldChange),
+    n = 5,
+    with_ties = FALSE
+  ) |>
   ungroup()
 
-ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
+deseq_volcano_log2fc <- ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
   geom_point(aes(color = group), alpha = 0.7) +
   geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
   geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
@@ -206,6 +218,47 @@ ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
        y = "-Log10 adjusted p-value",
        title = "Differential expression: responders vs non-responders") +
   theme_minimal()
+
+ggsave("images/deseq_volcano_log2fc.pdf", deseq_volcano_log2fc, width = 10, height = 6, device = cairo_pdf)
+```
+
+### Volcano plot (top 5 lowest padj scores for both groups)
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+# Label the 5 most significant genes in each direction
+gene_labels <- res_tbl |>
+  filter(group != "Not significant") |>
+  group_by(group) |>
+  slice_min(padj, n = 5, with_ties = FALSE) |>
+  ungroup()
+
+deseq_volcano_padj <- ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point(aes(color = group), alpha = 0.7) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+  geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
+  scale_color_manual(
+    name = NULL,
+    values = c("Up in responders"     = group_colours[["R"]],
+               "Up in non-responders" = group_colours[["NR"]],
+               "Not significant"      = "grey80")
+  ) +
+  geom_text_repel(data = gene_labels, aes(label = gene),
+                  size = 3, max.overlaps = Inf, box.padding = 0.4) +
+  annotate("text", x = Inf, y = 0, label = "Higher in responders \u2192",
+           hjust = 1.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = group_colours[["R"]]) +
+  annotate("text", x = -Inf, y = 0, label = "\u2190 Higher in non-responders",
+           hjust = -0.05, vjust = -0.5, size = 3,
+           fontface = "italic", color = group_colours[["NR"]]) +
+  labs(x = "Log2 fold change (R vs NR)",
+       y = "-Log10 adjusted p-value",
+       title = "Differential expression: responders vs non-responders") +
+  theme_minimal()
+
+ggsave("images/deseq_volcano_padj.pdf", deseq_volcano_padj, width = 10, height = 6, device = cairo_pdf)
 ```
 
 *Figure: Volcano plot of the DESeq2 results. Coloured points have an adjusted p-value below `padj_cut`. The five most significant genes in each direction are labelled.*
@@ -316,7 +369,7 @@ top_pathways_df <- fgsea_tbl |>
   ungroup() |>
   mutate(label = clean_label(pathway, width = 30))
 
-ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction)) +
+gsea_top_enriched_pathways <- ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction)) +
   geom_col(width = 0.7) +
   geom_vline(xintercept = 0, color = "grey30") +
   scale_fill_manual(
@@ -334,6 +387,10 @@ ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction))
         legend.position    = "bottom",
         plot.title         = element_text(face = "bold"),
         plot.title.position = "plot")
+
+ggsave("images/gsea_top_enriched_pathways.pdf", gsea_top_enriched_pathways, width = 10, height = 6, device = cairo_pdf)
+
+gsea_top_enriched_pathways
 ```
 
 GO terms overlap heavily. The next step collapses them into independent themes.
