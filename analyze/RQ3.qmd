@@ -51,6 +51,8 @@ tmb_col <- "TMB"
 #tpm 
 # TPM is normalized (gene length + depth) but on a LINEAR scale, so we log2 it
 log_transform_tpm <- TRUE
+
+group_colours <- c("Non-responder" = "#D9534F", "Responder" = "#2E86C1")
 ```
 
 ## Matching the samples
@@ -130,22 +132,21 @@ Each biomarker in response groups + Wilcoxon test
 plot_biomarker <- function(data, var, ylab) {
   d  <- data[!is.na(data[[var]]), ]
   wt <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
-  
   ggplot(d, aes(x = Response, y = .data[[var]], fill = Response)) +
     geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.12, alpha = 0.6, size = 1) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 1.4) +
+    scale_fill_manual(values = group_colours) +
     annotate("text", x = Inf, y = Inf,
-             label = paste0("Wilcoxon p = ", signif(wt$p.value, 2)),
-             hjust = 1, vjust = 1) +
+             label = paste0("Wilcoxon p = ", signif(wt$p.value, 3)),
+             hjust = 1.1, vjust = 1.4) +
     guides(fill = "none") +
     labs(x = NULL, y = ylab) +
     theme_classic(base_size = 12)
 }
 
 p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), log2(TPM+1)")
-p_gep <- plot_biomarker(df, "GEP",   "T-cell-inflamed GEP score")
+p_gep <- plot_biomarker(df, "GEP",   "T-cell–inflamed GEP score")
 p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
-
 
 p_pd1 + p_gep + p_tmb   # 3 panels next to each other
 ```
@@ -176,3 +177,17 @@ results <- do.call(rbind, lapply(c("PDCD1", "GEP", "TMB"),
 rownames(results) <- NULL
 results
 ```
+
+## conclusion
+
+all three candidate biomarkers (PD-1, the 18 genes T cell inflamed GEP and TMB) were higher in responders than non responders and each of them differed significantly between two response groups. Proof for that showed wilcoxon test with p\<0.001 for all of three, as it is seen in boxplot or summarytable
+
+when it comes to the direction, TMB showed the largest relative shift (median 7 -\> 14 mut/mb) and the strongest statistical evidence. GEP has the cleanest sepration of the two groups, which is seen on the boxplot-\> the boxes barely overlapping. PD-1 showed the weakest assosiation out of all of them, with the most overlap between the groups.
+
+the “strongest” biomarker depends on the criterion used: TMB wins on p-value and relative median change, whereas GEP best separates the groups visually. All of the 3 biomarkers represend very low p value.
+
+when it comes to investigate biological meaning- each biomarker reflects a different part of the anti tumor immune response. TMB is a genomic measure of the number of somatic mutations. Pd-1 is a single gene read out activated/exhausted T cells. The T cell inflamed GEP summarizes a coordinated, multi-gene signal of an inflamed tumor microenvironment.
+
+Limitations: these are group level associations in baseline samples, not balidated predictive biomarkers, so some of them overlap. Groups are strongly imbalanced between responders and nonresponders
+
+To sum up, all three biomarkers are associated with response, with the strongest and largest relative effect for TMB and the cleanest group separation for GEP, but the overlapping distributions, imbalanced mean these should be interpreted as associations rather than clinically actionable predictors.
