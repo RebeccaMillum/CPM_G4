@@ -44,6 +44,9 @@ library(tidyverse)
 # Significance threshold used throughout the document
 padj_cut <- 0.05
 
+# Set group colorscheme
+group_colours <- c(NR = "#D9534F", R = "#2E86C1")
+
 # Helper: "GOBP_CELL_MIGRATION" -> "Cell migration" (optionally wrapped)
 clean_label <- function(x, width = NULL) {
   x <- x |>
@@ -141,7 +144,7 @@ res_tbl |>
   head(10)
 ```
 
-Of the `n_tested` genes with an adjusted p-value, `n_up` were significantly higher in responders and `n_down` were significantly higher in non-responders (BH-adjusted p \< `padj_cut`).
+Of the `{r} n_tested` genes with an adjusted p-value, `{r} n_up` were significantly higher in responders and `{r} n_down` were significantly higher in non-responders (BH-adjusted p \< `{r} padj_cut`).
 
 #### **Interpretation**
 
@@ -154,7 +157,7 @@ Comment on the number of DE genes. Is it large or small given the sample size? M
 vsd <- vst(dds, blind = TRUE) # could also have been log2 transformation, vst is build specifically for rna seq count data
 
 pca <- plotPCA(vsd, intgroup = "BOR") +
-  scale_color_manual(values = c(NR = "steelblue", R = "firebrick")) +
+  scale_color_manual(values = group_colours) +
   labs(title = "PCA of variance-stabilised counts") +
   theme_minimal()
 pca
@@ -187,18 +190,18 @@ ggplot(res_tbl, aes(x = log2FoldChange, y = -log10(padj))) +
   geom_hline(yintercept = -log10(padj_cut), linetype = "dashed", color = "grey40") +
   scale_color_manual(
     name = NULL,
-    values = c("Up in responders"     = "firebrick",
-               "Up in non-responders" = "steelblue",
+    values = c("Up in responders"     = group_colours[["R"]],
+               "Up in non-responders" = group_colours[["NR"]],
                "Not significant"      = "grey80")
   ) +
   geom_text_repel(data = gene_labels, aes(label = gene),
                   size = 3, max.overlaps = Inf, box.padding = 0.4) +
   annotate("text", x = Inf, y = 0, label = "Higher in responders \u2192",
            hjust = 1.05, vjust = -0.5, size = 3,
-           fontface = "italic", color = "firebrick") +
+           fontface = "italic", color = group_colours[["R"]]) +
   annotate("text", x = -Inf, y = 0, label = "\u2190 Higher in non-responders",
            hjust = -0.05, vjust = -0.5, size = 3,
-           fontface = "italic", color = "steelblue") +
+           fontface = "italic", color = group_colours[["NR"]]) +
   labs(x = "Log2 fold change (R vs NR)",
        y = "-Log10 adjusted p-value",
        title = "Differential expression: responders vs non-responders") +
@@ -229,11 +232,12 @@ if (length(top_genes) >= 2) {
   pheatmap(mat,
            scale             = "row",   # z-score per gene
            annotation_col    = ann,
-           annotation_colors = list(BOR = c(NR = "steelblue", R = "firebrick")),
-           color             = colorRampPalette(c("steelblue", "white", "firebrick"))(100),
+           annotation_colors = list(BOR = group_colours),
+           color             = colorRampPalette(c(group_colours[["NR"]], "white", group_colours[["R"]]))(100),
            show_colnames     = FALSE,
            main              = "Top 30 DE genes (VST, row z-score)")
 }
+
 ```
 
 *Figure: Heatmap of the 30 most significant genes. Samples (columns) are clustered by expression and the bar at the top shows their response group.*
@@ -317,8 +321,8 @@ ggplot(top_pathways_df, aes(x = NES, y = reorder(label, NES), fill = direction))
   geom_vline(xintercept = 0, color = "grey30") +
   scale_fill_manual(
     name = NULL,
-    values = c("Enriched in responders"     = "firebrick",
-               "Enriched in non-responders" = "steelblue")
+    values = c("Enriched in responders"     = group_colours[["R"]],
+               "Enriched in non-responders" = group_colours[["NR"]])
   ) +
   labs(x = "Normalized enrichment score (NES)",
        y = NULL,
@@ -382,6 +386,18 @@ main_tbl |>
   ungroup() |>
   arrange(direction, padj) |>
   select(label, direction, NES, padj, size)
+
+fgsea_tbl |>
+  mutate(direction = if_else(NES > 0,
+                             "Enriched in responders",
+                             "Enriched in non-responders"),
+         label = clean_label(pathway)) %>% 
+  group_by(direction) |>
+  slice_min(padj, n = 10, with_ties = FALSE) |>
+  ungroup() |>
+  arrange(direction, padj) |>
+  select(label, direction, NES, padj, size)
+
 ```
 
 #### Interpretation
@@ -414,11 +430,13 @@ top_main_down <- main_tbl |>
   slice_min(padj, n = 10, with_ties = FALSE) |>
   pull(pathway)
 
+
 # gseaParam = 0.5 only affects how the plot is drawn, not the statistics
 plotGseaTable(pathways[c(top_main_up, rev(top_main_down))],
               stats     = ranked_genes,
-              fgseaRes  = fgsea_res,
+              fgseaRes  = main_tbl,
               gseaParam = 0.5)
+
 ```
 
 ### Enrichment plots for the top main pathway in each direction
@@ -451,8 +469,19 @@ for (pw in c(top_up, top_down)) print(plot_pw(pw))
 #| fig-width: 12
 #| fig-height: 8
 
+# Adding non-significant pathways to the plot for illustrational purposes
+nes_df <- fgsea_tbl |>
+  mutate(label = clean_label(pathway), 
+         group = case_when(
+      NES > 0 & pathway %in% main_pathways ~ "Up in responders",
+      NES < 0 & pathway %in% main_pathways ~ "Up in non-responders",
+      padj > padj_cut ~ "Not significant",
+      TRUE ~ "Not main pathways")) %>% 
+  filter(group != "Not main pathways") |> # remove significant non-main pathways
+  arrange(group != "Not significant")   # draw significant points on top
+
 # All collapsed (independent) main pathways, not only the top 10 per direction
-nes_df <- main_tbl |>
+nes_df_alternative <- main_tbl |>
   mutate(
     label = clean_label(pathway, width = 40),
     group = case_when(
@@ -463,6 +492,7 @@ nes_df <- main_tbl |>
   ) |>
   arrange(group != "Not significant")   # draw significant points on top
 
+ 
 # Label the 5 most significant main pathways in each direction
 nes_labels <- nes_df |>
   filter(group != "Not significant") |>
@@ -477,8 +507,8 @@ p <- ggplot(nes_df, aes(x = NES, y = -log10(padj))) +
              shape = 21, colour = "white", stroke = 0.35, alpha = 0.7) +
   scale_color_manual(
     name = NULL,
-    values = c("Up in responders"     = "firebrick",
-               "Up in non-responders" = "steelblue",
+    values = c("Up in responders"     = group_colours[["R"]],
+               "Up in non-responders" = group_colours[["NR"]],
                "Not significant"      = "grey80"),
     aesthetics = c("color", "fill")
   ) +
@@ -496,10 +526,10 @@ p <- ggplot(nes_df, aes(x = NES, y = -log10(padj))) +
   ) +
   annotate("text", x = Inf, y = 0, label = "Higher in responders \u2192",
            hjust = 1.05, vjust = -0.5, size = 3,
-           fontface = "italic", color = "firebrick") +
+           fontface = "italic", color = group_colours[["R"]]) +
   annotate("text", x = -Inf, y = 0, label = "\u2190 Higher in non-responders",
            hjust = -0.05, vjust = -0.5, size = 3,
-           fontface = "italic", color = "steelblue") +
+           fontface = "italic", color = group_colours[["NR"]]) +
   guides(
     fill = guide_legend(order = 1,
                         override.aes = list(size = 4, alpha = 1)),
