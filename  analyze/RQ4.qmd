@@ -9,9 +9,11 @@ How might differences in tumor purity influence the expression of immune- relate
 
 -   Discuss how tumor purity may influence PD-1 expression and T-cell–inflamed GEP scores measured using bulk RNA-seq.
 
+    -   
+
 -   Consider whether differences in tumor purity could partly explain the associations observed in RQ2 and RQ3.
 
--   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers
+-   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers.
 
 ### Step 1: lode in the data
 
@@ -175,7 +177,7 @@ GEP_Response_test
 ```{r}
 #| eval: false
 #| include: false
-#| We dont need to test
+#| We dont need to test TMB
 plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
 ```
 
