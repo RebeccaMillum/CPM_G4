@@ -1,0 +1,197 @@
+---
+title: "RQ3"
+format: html
+editor: visual
+  markdown: 
+    wrap: 72
+---
+
+# Question nr. 3
+
+# Comparing PD-1, T-cell-inflamed GEP and TMB – how they relate to immunotherapy response
+
+tasks:
+
+1.  Visualize the distribution of each biomarker in responders vs non-responders (boxplots).
+2.  Test whether each biomarker differs significantly between response groups.
+3.  Compare the direction and magnitude of the differences, and discuss which biomarkers show stronger associations.
+4.  Explain the biological information captured by each biomarker and discuss strengths and limitations.
+
+## Load the libraries + data
+
+```{r}
+library(ggplot2)
+library(patchwork)
+
+# folder with the data (change here if the path is different)
+data_dir <- "../22123_cpm/CPM_G4/data"
+
+counts   <- readRDS(file.path(data_dir, "counts.rds"))
+tpm      <- readRDS(file.path(data_dir, "tpm.rds"))
+clinical <- readRDS(file.path(data_dir, "clinical.rds"))
+
+# checking the columns
+colnames(clinical)
+head(clinical)
+```
+
+```{r}
+# column with sample id
+sample_col <- "sample_id"
+
+# column with Best Overall Response
+resp_col <- "BOR"
+
+# defining responder vs non-responder
+responder_values     <- c("R")
+non_responder_values <- c("NR")
+
+# TMB column in clinical
+tmb_col <- "TMB"
+#tpm 
+# TPM is normalized (gene length + depth) but on a LINEAR scale, so we log2 it
+log_transform_tpm <- FALSE
+
+group_colours <- c("Non-responder" = "#D9534F", "Responder" = "#2E86C1")
+```
+
+## Matching the samples
+
+```{r}
+resp_raw <- as.character(clinical[[resp_col]])
+resp <- ifelse(resp_raw %in% responder_values, "Responder",
+               ifelse(resp_raw %in% non_responder_values, "Non-responder", NA))
+
+clinical$Response <- factor(resp, levels = c("Non-responder", "Responder"))
+
+cat("Distribution of responses:\n")
+print(table(clinical$Response, useNA = "ifany"))
+
+# leave only the samples with one, concrete response
+keep_resp <- !is.na(clinical$Response)
+clinical  <- clinical[keep_resp, ]
+ids       <- as.character(clinical[[sample_col]])
+
+# TPM columns in the same order as clinical
+stopifnot(all(ids %in% colnames(tpm)))
+tpm <- tpm[, ids, drop = FALSE]
+stopifnot(identical(colnames(tpm), ids))
+```
+
+## Separating 3 biomarkers
+
+```{r}
+# expression matrix in log2 scale
+expr <- as.matrix(tpm)
+if (log_transform_tpm) expr <- log2(expr + 1)
+
+# PD-1 = PDCD1 gene expression
+stopifnot("PDCD1" %in% rownames(expr))
+pd1 <- as.numeric(expr["PDCD1", ])
+
+# T-cell-inflamed GEP- from article 
+gep_genes <- c("CCL5", "CD27", "CD274", "CD276", "CD8A", "CMKLR1", "CXCL9",
+               "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3",
+               "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
+
+gep_present <- intersect(gep_genes, rownames(expr))
+cat("Found GEP genes:", length(gep_present), "of", length(gep_genes), "\n")
+cat("Missing ones:", paste(setdiff(gep_genes, gep_present), collapse = ", "), "\n")
+
+# standardize each gene across samples (scale by rows),
+# then mean across genes (Exercise 6 -> average standardized expression)
+gep_mat    <- expr[gep_present, , drop = FALSE]
+gep_scaled <- t(scale(t(gep_mat)))   # z-score
+gep_score  <- colMeans(gep_scaled, na.rm = TRUE)
+
+# TMB from clinical data
+if (!is.na(tmb_col)) {
+  tmb <- as.numeric(clinical[[tmb_col]])
+} else {
+  tmb <- rep(NA_real_, nrow(clinical))
+}
+
+# one data frame for analysis
+df <- data.frame(
+  sample   = ids,
+  Response = clinical$Response,
+  PDCD1    = pd1,
+  GEP      = gep_score,
+  TMB      = tmb
+)
+head(df)
+```
+
+## Box plots
+
+Each biomarker in response groups + Wilcoxon test
+
+```{r}
+# boxplot + jitter + p-value from Wilcoxon test
+
+plot_biomarker <- function(data, var, ylab) {
+  d  <- data[!is.na(data[[var]]), ]
+  wt <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
+  ggplot(d, aes(x = Response, y = .data[[var]], fill = Response)) +
+    geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.12, alpha = 0.6, size = 1.2) +
+    scale_fill_manual(values = group_colours) +
+    # short x-axis labels so they don't overlap
+    scale_x_discrete(labels = c("Non-responder" = "NR", "Responder" = "R")) +
+    guides(fill = "none") +
+    labs(x = NULL, y = ylab,
+         subtitle = paste0("Wilcoxon p = ", signif(wt$p.value, 3))) +
+    theme_classic(base_size = 11) +
+    theme(plot.subtitle = element_text(size = 9))
+}
+
+p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), TPM")
+p_gep <- plot_biomarker(df, "GEP",   "T-cell–inflamed GEP score")
+p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
+
+combined_plot <- p_pd1 + p_gep + p_tmb   # 3 panels next to each other
+combined_plot
+```
+
+## Table with results
+
+For each biomarker we report the group mediansnd and the Wilcoxon p-value
+
+```{r}
+summarise_biomarker <- function(data, var) {
+  d   <- data[!is.na(data[[var]]), ]
+  med <- tapply(d[[var]], d$Response, median)
+  wt  <- wilcox.test(d[[var]] ~ d$Response, exact = FALSE)
+  data.frame(
+    Biomarker      = var,
+    n_NonResponder = sum(d$Response == "Non-responder"),
+    n_Responder    = sum(d$Response == "Responder"),
+    median_NonResp = round(med["Non-responder"], 3),
+    median_Resp    = round(med["Responder"], 3),
+    direction      = ifelse(med["Responder"] > med["Non-responder"],
+                            "higher in responders", "higher in non-responders"),
+    wilcox_p       = signif(wt$p.value, 3)
+  )
+}
+
+results <- do.call(rbind, lapply(c("PDCD1", "GEP", "TMB"),
+                                 function(v) summarise_biomarker(df, v)))
+rownames(results) <- NULL
+results
+```
+
+## conclusion
+
+all three candidate biomarkers (PD-1, the 18 genes T cell inflamed GEP and TMB) were higher in responders than non responders and each of them differed significantly between two response groups. Proof for that showed wilcoxon test with p\<0.001 for all of three, as it is seen in boxplot or summarytable
+
+when it comes to the direction, TMB showed the largest relative shift (median 7 -\> 14 mut/mb) and the strongest statistical evidence. GEP has the cleanest sepration of the two groups, which is seen on the boxplot-\> the boxes barely overlapping. PD-1 showed the weakest assosiation out of all of them, with the most overlap between the groups.
+
+the “strongest” biomarker depends on the criterion used: TMB wins on p-value and relative median change, whereas GEP best separates the groups visually. All of the 3 biomarkers represend very low p value.
+
+when it comes to investigate biological meaning- each biomarker reflects a different part of the anti tumor immune response. TMB is a genomic measure of the number of somatic mutations. Pd-1 is a single gene read out activated/exhausted T cells. The T cell inflamed GEP summarizes a coordinated, multi-gene signal of an inflamed tumor microenvironment.
+
+Limitations: these are group level associations in baseline samples, not balidated predictive biomarkers, so some of them overlap. Groups are strongly imbalanced between responders and nonresponders
+
+To sum up, all three biomarkers are associated with response, with the strongest and largest relative effect for TMB and the cleanest group separation for GEP, but the overlapping distributions, imbalanced mean these should be interpreted as associations rather than clinically actionable predictors..
+
+### 
