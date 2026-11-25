@@ -88,6 +88,8 @@ stopifnot(!anyNA(clinical$BOR))   # fails if BOR contained any other category
 table(clinical$BOR)
 ```
 
+Note a small Responders group.
+
 ## 2. Differential expression with DESeq2
 
 ### Build the DESeq2 dataset and filter low-count genes
@@ -143,6 +145,7 @@ res_tbl |>
   select(gene, group, log2FoldChange, padj, baseMean) |>
   head(10)
 
+# Top 10 genes by adjusted numeric Log2FC
 res_tbl |>
   filter(group != "Not significant") |>
   arrange(log2FoldChange) |>
@@ -150,7 +153,7 @@ res_tbl |>
   head(10)
 ```
 
-Of the `{r} n_tested` genes with an adjusted p-value, `{r} n_up` were significantly higher in responders and `{r} n_down` were significantly higher in non-responders (BH-adjusted p \< `{r} padj_cut`).
+Of the 19432 genes with an adjusted p-value, `{r} n_up` were significantly higher in responders and `{r} n_down` were significantly higher in non-responders (BH-adjusted p \< `{r} padj_cut`).
 
 #### **Interpretation**
 
@@ -269,33 +272,48 @@ Consider not the most significant but the most out Log2FC's
 
 ### Heatmap of the top differentially expressed genes
 
+*Figure: Heatmap of the 30 most significant genes. Samples (columns) are clustered by expression and the bar at the top shows their response group.*
+
+**\[TODO: Do the samples cluster by response group? Which gene groups can you see (e.g. immune genes vs stromal genes)?\]**
+
 ```{r}
 #| fig-width: 8
 #| fig-height: 7
 
 top_genes <- res_tbl |>
   filter(group != "Not significant") |>
-  slice_min(padj, n = 30, with_ties = FALSE) |>
+  slice_min(padj, n = 50, with_ties = FALSE) |>
   pull(gene)
 
 if (length(top_genes) >= 2) {
-  mat <- assay(vsd)[top_genes, ]
-  ann <- as.data.frame(colData(vsd)[, "BOR", drop = FALSE])
+
+  # Order samples by response status
+  sample_order <- order(colData(vsd)$BOR)
+
+  mat <- assay(vsd)[top_genes, sample_order]
+  ann <- as.data.frame(colData(vsd)[sample_order, "BOR", drop = FALSE])
 
   pheatmap(mat,
-           scale             = "row",   # z-score per gene
-           annotation_col    = ann,
-           annotation_colors = list(BOR = group_colours),
-           color             = colorRampPalette(c(group_colours[["NR"]], "white", group_colours[["R"]]))(100),
-           show_colnames     = FALSE,
-           main              = "Top 30 DE genes (VST, row z-score)")
+           scale                = "row",
+           annotation_col       = ann,
+           annotation_colors    = list(BOR = group_colours),
+           color                = colorRampPalette(c("#D8B365", "white", "#542788"))(100),
+           cluster_cols         = FALSE,
+           cluster_rows         = TRUE,
+           show_colnames        = FALSE,
+           main                 = "Top 30 DE genes (VST, row z-score)")
 }
-
 ```
 
-*Figure: Heatmap of the 30 most significant genes. Samples (columns) are clustered by expression and the bar at the top shows their response group.*
+Note that the heatmap does not show absolute gene expression. It shows relative expression patterns for each gene across samples (va.
 
-**\[TODO: Do the samples cluster by response group? Which gene groups can you see (e.g. immune genes vs stromal genes)?\]**
+This means:
+
+-   Yellow = relatively high expression of that gene.
+
+-   Purple = relatively low expression of that gene.
+
+-   White = expression close to that gene's average.
 
 ## 3. Gene set enrichment analysis (GSEA)
 
@@ -353,7 +371,7 @@ fgsea_tbl |>
   head(20)
 ```
 
-`r n_pw_tested` GO biological processes (15-500 genes) were tested, and `r n_pw_sig` were significant (BH-adjusted p \< `r padj_cut`). A positive NES means the pathway is enriched in responders, a negative NES in non-responders.
+4036 GO biological processes were tested, and 1108 were significant (BH-adjusted p \< 0.05). A positive NES means the pathway is enriched in responders, a negative NES in non-responders.
 
 ### Top enriched pathways (before collapsing)
 
@@ -393,7 +411,7 @@ ggsave("images/gsea_top_enriched_pathways.pdf", gsea_top_enriched_pathways, widt
 gsea_top_enriched_pathways
 ```
 
-GO terms overlap heavily. The next step collapses them into independent themes.
+GO terms may overlap. The next step collapses them into independent themes.
 
 ### Collapse redundant pathways
 
@@ -409,7 +427,7 @@ n_sig  <- nrow(sig)
 n_main <- length(main_pathways)
 ```
 
-Of the `n_sig` significant pathways, `n_main` were kept as independent main pathways. The others are largely explained by one of these main pathways.
+Of the 1108 significant pathways, 353 were kept as independent main pathways. The others are largely explained by one of these main pathways.
 
 ```{r}
 # Which pathways were absorbed by each main pathway?
@@ -461,15 +479,11 @@ fgsea_tbl |>
 
 **Responders** are higher in pathways that are associated with active cell proliferation/cell division,
 
-In the context of anti-PD-L1 treatment, this makes sense because the treatment releases the brakes on the immune system, reflecting a more proliferative tumour environment, potentially including increased immune-cell proliferation and expansion of activated lymphocytes.
+In the context of anti-PD-L1 treatment, this makes sense because the treatment releases the brakes on the immune system, reflecting a more proliferative environment, potentially including increased immune-cell proliferation and expansion of activated lymphocytes.
 
-However, these pathways are not specific to immune cells. They could also reflect proliferation of tumour cells. Therefore, it is important to examine which cell populations contribute to the signal.
+However, these pathways are not specific to immune cells. They could also reflect proliferation of tumour cells. Therefore, could include examining which cell populations contribute to the signal.
 
-In the article, they find that high TMB is related to treatment response, so it might be a result of this, that the reponders are high. Correlational, not causal (?)
-
-**Non-responders** are higher in extracellular matrix remodelling which may indicate a new tumor microenvironment, as well as positive vascular development a driver of angiogenesis.
-
-Tissue remodeling is also very much in alignment with the findings from the article
+**Non-responders** have higher relative expression of genes in processes involving extracellular matrix organization, cell adhesion, wound healing and vascular development which may contribute to angiogenesis and the formation of an immunosuppressive microenvironment.
 
 ### GSEA table for the main pathways
 
@@ -608,7 +622,7 @@ dir.create("images", showWarnings = FALSE)
 ggsave("images/gsea_volcano.pdf", p, width = 10, height = 6, device = cairo_pdf)
 ```
 
-*Figure: Each point is one of the `n_main` independent (collapsed) GO biological processes. Point size shows the number of genes in the set and colour shows the direction of enrichment. All collapsed pathways were selected among the significant ones, so all points lie above the significance line.*
+*Figure: Each point is one of the `n_main` independent (collapsed) GO biological processes. Point size shows the number of genes in the set and colour shows the direction of enrichment. Originally, all collapsed pathways were selected among the significant ones, so all points lie above the significance line. However, we manually inserted the unsignificant pathways for visualization purposes.*
 
 ## Session info
 
