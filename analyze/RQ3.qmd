@@ -50,7 +50,7 @@ non_responder_values <- c("NR")
 tmb_col <- "TMB"
 #tpm 
 # TPM is normalized (gene length + depth) but on a LINEAR scale, so we log2 it
-log_transform_tpm <- TRUE
+log_transform_tpm <- FALSE
 
 group_colours <- c("Non-responder" = "#D9534F", "Responder" = "#2E86C1")
 ```
@@ -145,7 +145,7 @@ plot_biomarker <- function(data, var, ylab) {
     theme(plot.subtitle = element_text(size = 9))
 }
 
-p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), log2(TPM+1)")
+p_pd1 <- plot_biomarker(df, "PDCD1", "PDCD1 (PD-1), TPM")
 p_gep <- plot_biomarker(df, "GEP",   "T-cell–inflamed GEP score")
 p_tmb <- plot_biomarker(df, "TMB",   "TMB (mut/Mb)")
 
@@ -194,19 +194,4 @@ Limitations: these are group level associations in baseline samples, not balidat
 
 To sum up, all three biomarkers are associated with response, with the strongest and largest relative effect for TMB and the cleanest group separation for GEP, but the overlapping distributions, imbalanced mean these should be interpreted as associations rather than clinically actionable predictors..
 
-### save the output
-
-```{r}
-# 3 panles from boxplot
-out_dir <- "figures"
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
-
-# 1. Boxplot figure (the combined 3-panel plot)
-ggsave(file.path(out_dir, "RQ3_biomarkers_boxplots.png"),
-       combined_plot, width = 10, height = 4, dpi = 300, bg = "white")
-# table as jpg
-library(gridExtra)
-png(file.path(out_dir, "RQ3_results_table.png"), width = 1400, height = 400, res = 200)
-grid.table(results, rows = NULL)
-dev.off()
-```
+### 
