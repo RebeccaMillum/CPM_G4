@@ -2,13 +2,19 @@
 
 Group names: Cesilie, Alexsanda, Vitus, Louise, Rebecca Millum (s215024)
 
-The folder /annlyse contains the following filles: 
+The folder /annlyse contains the following filles:
+
 /00_data.qmd: used to load the data and save it in the data folder
-/RQ1.qmd: code for answering Q1 
+
+/RQ1.qmd: code for answering Q1
+
 /RQ2.qmd: code for answering Q2
+
 /RQ3.qmd: code for answering Q3
+
 /RQ4.qmd: code for answering Q4
-And the HTML format of the quato document
+
+And the HTML format of the Quarto document
 
 **Declaration of Use of Generative AI The questions apply to all parts of the work, including research, project writing, and coding.**
 
