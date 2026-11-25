@@ -15,7 +15,7 @@ How might differences in tumor purity influence the expression of immune- relate
 
 -   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers.
 
-### Step 1: lode in the data
+### Step 1: load in the data
 
 (code ref week 6)
 
@@ -110,12 +110,13 @@ summary(TMB)
 summary(PD1)
 ```
 
-## **Calculate a T cell–inflamed gene-expression score**
+## Calculate a T cell–inflamed gene-expression score
 
-Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set. First verify that the required genes are present, then standardize each gene across samples (using scale()), and calculate the mean standardized expression for each sample.
+Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set. Step 1: Verify that the required genes are present Step 2: Standardize each gene across samples (using scale()), and calculate the mean standardized expression for each sample.
 
 ```{r}
-GEP_genes <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E", "PDCD-1")
+#Step 1:
+GEP_genes <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E", "PDCD1")
 #c("CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1", "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E","IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
 
 GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(tpm)]
@@ -128,6 +129,7 @@ cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\
 # Extract GEP genes.
 GEP_expr <- tpm[GEP_genes_present, , drop = FALSE]
 
+#Step 2:
 # Standardize each gene across samples.
 # scale() operates on columns, so transpose before and after scaling.
 GEP_expr_scaled <- t(scale(t(GEP_expr)))
@@ -138,9 +140,9 @@ GEP_scores <- colMeans(GEP_expr_scaled, na.rm = TRUE)
 summary(GEP_scores)
 ```
 
+Her we will make a dataframe for studing where the biomarkes, TMB, PD1 and GEP_scores assostion whit a responce class
+
 ```{r}
-# 3. Are the biomarkers associated with response class?
-#Task 4: Combine the three biomarkers with Response and PFS in a dataframe, visualize their distributions across response groups, and formally test whether biomarker values differ between response classes.
 df <- data.frame(
   sample = clinical$sample_id,
   TMB = TMB,
@@ -154,6 +156,10 @@ stopifnot(identical(df$sample, colnames(tpm)))
 summary(df)
 
 ```
+
+From the summery table we know that we have 167 None responderes and 25 Responderes We can se that TMB have 42 sampels whit NA
+
+Next we perform the Wilcox test, which is a non-parametric stastical test, which uses rank values (good if data is not normal distribute)
 
 ```{r}
 TMB_Response_test <- wilcox.test(TMB ~ Response, data = df)
@@ -171,10 +177,11 @@ PD1_Response_test
 GEP_Response_test
 ```
 
+In the result of the wilcox test we can se that TBM,PD1 and GEP all have a pvalue \< 0.05 which means that the result is statsiqly siqnificat.
+
+Now we plot the relationship betwen TMB and Responce class
+
 ```{r}
-#| eval: false
-#| include: false
-#| We dont need to test TMB
 plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
 ```
 
@@ -186,7 +193,11 @@ plot_Response_boxplot(df, "PD1", "PDCD1 expression", PD1_Response_test)
 plot_Response_boxplot(df, "GEP_scores", "T cell–inflamed GEP score", GEP_Response_test)
 ```
 
+Above we can se the distributiones for the Responderes and No-respondes for PD-1, GP-score and TMB
+
 ## Estimate tumor purity
+
+Now we estimate the Toumer purity, using the deconvolute fungtion, this is doon on the tpm normalize data, which mactges the genes to a data set, we have 139 geans that overlab whit the StromalSignature and 141 whit ImmuneSignature.
 
 ```{r}
 #5. Estimate tumor purity
@@ -235,12 +246,15 @@ stopifnot(length(tumor_purity) == nrow(df))
 summary(tumor_purity)
 ```
 
+Her we can se that the sampel that is estimete to be the most pure is 96 % pure and the least pure is 30 % pure
+
 ```{r}
 df$purity <- tumor_purity
 ```
 
 ```{r}
 #How strongly are the biomarkers related to tumor purity?
+# for this test the spearman corelation is udede as it do not asume a normal distribution
 TMB_purity_cor <- cor.test(
   df$purity, df$TMB,
   method = "spearman",
@@ -265,17 +279,21 @@ GEP_purity_cor <- cor.test(
 TMB_purity_cor
 ```
 
+There is not a siqnuficat relationship betwen TMB and the preditet tuoumer purity
+
 ```{r}
 PD1_purity_cor
 ```
+
+There is a siqnuficat relationship betwen PD1 and the preditet tuoumer purity
 
 ```{r}
 GEP_purity_cor
 ```
 
+There is a siqnuficat relationship betwen GEP score and the preditet tuoumer purity
+
 ```{r}
-#| eval: false
-#| include: false
 plot_association(
   df, "purity", "TMB",
   "Tumor purity", "Tumor mutational burden", TMB_purity_cor
@@ -285,8 +303,9 @@ plot_association(
 ```{r}
 plot_association(
   df, "purity", "PD1",
-  "Tumor purity", "PDCD1 expression", PD1_purity_cor
+  "Tumor purity", "PD1 expression", PD1_purity_cor
 )
+#"PDCD1 expression"
 ```
 
 ```{r}
@@ -296,9 +315,9 @@ plot_association(
 )
 ```
 
-## **What happens if we adjust expression for tumor purity?**
+## **What happens if we adjust the expression for tumor purity?**
 
-Note from wee 6:
+Note from week 6:
 
 ![](images/clipboard-1166984077.png)
 
@@ -360,7 +379,7 @@ plot_Response_boxplot(
 )
 ```
 
-## Is there a difference in the predicate composion of immune celles between responds and non-respondes
+## Is there a difference in the predicted composition of immune cells between responders and non-respondes
 
 ```{r}
 # Make sure tpm is a matrix
@@ -405,7 +424,8 @@ res_clinical <- res_long %>%
 #this are the data in longformat (there for we  )
 table(res_clinical$BOR, useNA = "ifany")
 ```
-Test that the longer worked  (it did because each sample became 11 rows)
+
+Test that the longer worked (it did because each sample became 11 rows)
 
 ```{r}
 1837/167
@@ -453,7 +473,6 @@ ggplot(gm_results, aes(x = BOR, y = percentage, fill = cell_type)) +
   geom_col() +
   labs(
     title = "Immune cell composition by BOR",
-    x = "Best Overall Response",
     y = "Relative immune cell composition (%)",
     fill = "Cell type"
   ) +
