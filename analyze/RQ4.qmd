@@ -9,9 +9,11 @@ How might differences in tumor purity influence the expression of immune- relate
 
 -   Discuss how tumor purity may influence PD-1 expression and T-cell–inflamed GEP scores measured using bulk RNA-seq.
 
+    -   PD-1
+
 -   Consider whether differences in tumor purity could partly explain the associations observed in RQ2 and RQ3.
 
--   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers
+-   Discuss whether adjusting for tumor purity would necessarily improve the interpretation of these biomarkers.
 
 ### Step 1: lode in the data
 
@@ -33,13 +35,13 @@ clinical <- readRDS("../data/clinical.rds")
 all(clinical$sample_id %in% colnames(counts))
 
 # Reorder expression columns to match the phenotype table.
-tpm <- tpm[, match(clinical$sample_id, colnames(counts)), drop = FALSE]
+tpm <- tpm[, match(clinical$sample_id, colnames(tpm)), drop = FALSE]
 
 # Explicitly verify the resulting sample order.
-stopifnot(identical(clinical$sample_id, colnames(counts)))
+stopifnot(identical(clinical$sample_id, colnames(tpm)))
 
-cat("Samples aligned:", ncol(counts), "\n")
-cat("Missing expression values:", sum(is.na(counts)), "\n")
+cat("Samples aligned:", ncol(tpm), "\n")
+cat("Missing expression values:", sum(is.na(tpm)), "\n")
 
 cat("\nResponse distribution:\n")
 print(table(clinical$BOR, useNA = "ifany"))
@@ -99,7 +101,7 @@ TMB <- clinical$TMB
 
 ```{r}
 # Extract PDCD1 expression.
-PD1 <- as.numeric(counts["PDCD1", ])
+PD1 <- as.numeric(tpm["PDCD1", ])
 
 summary(TMB)
 ```
@@ -113,21 +115,18 @@ summary(PD1)
 Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set. First verify that the required genes are present, then standardize each gene across samples (using scale()), and calculate the mean standardized expression for each sample.
 
 ```{r}
-GEP_genes <- c(
-  "CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1",
-  "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E",
-  "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT"
-)
+GEP_genes <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E", "PDCD-1")
+#c("CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1", "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E","IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
 
-GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(counts)]
-GEP_genes_missing <- setdiff(GEP_genes, rownames(counts))
+GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(tpm)]
+GEP_genes_missing <- setdiff(GEP_genes, rownames(tpm))
 
 cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\n")
 ```
 
 ```{r}
 # Extract GEP genes.
-GEP_expr <- counts[GEP_genes_present, , drop = FALSE]
+GEP_expr <- tpm[GEP_genes_present, , drop = FALSE]
 
 # Standardize each gene across samples.
 # scale() operates on columns, so transpose before and after scaling.
@@ -150,7 +149,7 @@ df <- data.frame(
   Response = factor(clinical$BOR)
 )
 
-stopifnot(identical(df$sample, colnames(counts)))
+stopifnot(identical(df$sample, colnames(tpm)))
 
 summary(df)
 
@@ -173,6 +172,9 @@ GEP_Response_test
 ```
 
 ```{r}
+#| eval: false
+#| include: false
+#| We dont need to test TMB
 plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
 ```
 
@@ -184,42 +186,11 @@ plot_Response_boxplot(df, "PD1", "PDCD1 expression", PD1_Response_test)
 plot_Response_boxplot(df, "GEP_scores", "T cell–inflamed GEP score", GEP_Response_test)
 ```
 
-```{r}
-#| eval: false
-#| include: false
-#| This code Will not be run as we dont have PFS data
-#4. Associations with progression-free survival
-#Task 5: Examine whether TMB, PD-1 expression, and the T cell–inflamed GEP are associated with PFS as a continuous outcome.
-
-TMB_PFS_cor <- cor.test(
-  df$PFS, df$TMB,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-PD1_PFS_cor <- cor.test(
-  df$PFS, df$PD1,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-GEP_PFS_cor <- cor.test(
-  df$PFS, df$GEP_scores,
-  method = "spearman",
-  exact = FALSE,
-  use = "complete.obs"
-)
-
-TMB_PFS_cor 
-```
-
 ## Estimate tumor purity
 
 ```{r}
 #5. Estimate tumor purity
-purity <- deconvolute_estimate(counts)
+purity <- deconvolute_estimate(tpm)
 ```
 
 ```{r}
@@ -232,6 +203,13 @@ dim(purity)
 
 ```{r}
 rownames(purity)
+```
+
+```         
+StromalScore:
+ImmuneScore:
+ESTIMATEScore:
+TumorPurity:  
 ```
 
 ```{r}
@@ -249,9 +227,9 @@ tumor_purity <- as.numeric(purity[purity_row, ])
 names(tumor_purity) <- colnames(purity)
 
 # Reorder purity to match the expression/phenotype sample order.
-tumor_purity <- tumor_purity[colnames(counts)]
+tumor_purity <- tumor_purity[colnames(tpm)]
 
-stopifnot(identical(names(tumor_purity), colnames(counts)))
+stopifnot(identical(names(tumor_purity), colnames(tpm)))
 stopifnot(length(tumor_purity) == nrow(df))
 
 summary(tumor_purity)
@@ -296,6 +274,8 @@ GEP_purity_cor
 ```
 
 ```{r}
+#| eval: false
+#| include: false
 plot_association(
   df, "purity", "TMB",
   "Tumor purity", "Tumor mutational burden", TMB_purity_cor
@@ -324,7 +304,7 @@ Note from wee 6:
 
 ```{r}
 expr_adjusted <- removeBatchEffect(
-  counts,
+  tpm,
   covariates = matrix(df$purity, ncol = 1)
 )
 
@@ -378,4 +358,104 @@ plot_Response_boxplot(
   "Purity-adjusted T cell–inflamed GEP score",
   GEP_Response_adjusted_test
 )
+```
+
+## Is there a difference in the predicate composion of immune celles between responds and non-respondes
+
+```{r}
+# Make sure tpm is a matrix
+tpm_mat <- as.matrix(tpm)
+
+# Run immune cell deconvolution
+res <- immunedeconv::deconvolute(
+  tpm_mat,
+  "quantiseq",
+  tumor = TRUE
+)
+
+# Display results
+knitr::kable(res, digits = 2)
+#In the tabel below we se the predicet cell type pr. sampel
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Convert deconvolution output to long format
+res_long <- res %>%
+  pivot_longer(
+    cols = -cell_type,
+    names_to = "sample_id",
+    values_to = "fraction"
+  )
+```
+
+```{r}
+clinical_response <- clinical %>%
+  select(sample_id, BOR)
+
+# Join the clinical information to the immune cell data
+res_clinical <- res_long %>%
+  left_join(clinical_response, by = "sample_id")
+```
+
+```{r}
+#this are the data in longformat (there for we  )
+table(res_clinical$BOR, useNA = "ifany")
+```
+Test that the longer worked  (it did because each sample became 11 rows)
+
+```{r}
+1837/167
+275/25
+```
+
+```{r}
+gm_results <- res_clinical %>%
+  group_by(BOR, cell_type) %>%
+  summarise(
+    gm = if (any(fraction == 0, na.rm = TRUE)) {
+      0
+    } else {
+      exp(mean(log(fraction), na.rm = TRUE))
+    },
+    .groups = "drop"
+  )
+gm_results <- gm_results %>%
+  group_by(BOR) %>%
+  mutate(
+    percentage = gm / sum(gm) * 100
+  ) %>%
+  ungroup()
+```
+
+```{r}
+gm_results <- gm_results %>%
+  group_by(BOR) %>%
+  mutate(
+    percentage = gm / sum(gm) * 100
+  ) %>%
+  ungroup()
+```
+
+```{r}
+gm_results
+
+gm_results %>%
+  group_by(BOR) %>%
+  summarise(total = sum(percentage))
+```
+
+```{r}
+ggplot(gm_results, aes(x = BOR, y = percentage, fill = cell_type)) +
+  geom_col() +
+  labs(
+    title = "Immune cell composition by BOR",
+    x = "Best Overall Response",
+    y = "Relative immune cell composition (%)",
+    fill = "Cell type"
+  ) +
+  theme_bw()
 ```
