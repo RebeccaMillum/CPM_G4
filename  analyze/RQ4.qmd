@@ -9,7 +9,7 @@ How might differences in tumor purity influence the expression of immune- relate
 
 -   Discuss how tumor purity may influence PD-1 expression and T-cell–inflamed GEP scores measured using bulk RNA-seq.
 
-    -   
+    -   PD-1
 
 -   Consider whether differences in tumor purity could partly explain the associations observed in RQ2 and RQ3.
 
@@ -115,11 +115,8 @@ summary(PD1)
 Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set. First verify that the required genes are present, then standardize each gene across samples (using scale()), and calculate the mean standardized expression for each sample.
 
 ```{r}
-GEP_genes <- c(
-  "CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1",
-  "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E",
-  "IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT"
-)
+GEP_genes <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E", "PDCD-1")
+#c("CD27", "CD274", "PDCD1", "CD276", "CD8A", "CMKLR1", "CXCL9", "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E","IDO1", "LAG3", "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
 
 GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(tpm)]
 GEP_genes_missing <- setdiff(GEP_genes, rownames(tpm))
@@ -361,4 +358,104 @@ plot_Response_boxplot(
   "Purity-adjusted T cell–inflamed GEP score",
   GEP_Response_adjusted_test
 )
+```
+
+## Is there a difference in the predicate composion of immune celles between responds and non-respondes
+
+```{r}
+# Make sure tpm is a matrix
+tpm_mat <- as.matrix(tpm)
+
+# Run immune cell deconvolution
+res <- immunedeconv::deconvolute(
+  tpm_mat,
+  "quantiseq",
+  tumor = TRUE
+)
+
+# Display results
+knitr::kable(res, digits = 2)
+#In the tabel below we se the predicet cell type pr. sampel
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Convert deconvolution output to long format
+res_long <- res %>%
+  pivot_longer(
+    cols = -cell_type,
+    names_to = "sample_id",
+    values_to = "fraction"
+  )
+```
+
+```{r}
+clinical_response <- clinical %>%
+  select(sample_id, BOR)
+
+# Join the clinical information to the immune cell data
+res_clinical <- res_long %>%
+  left_join(clinical_response, by = "sample_id")
+```
+
+```{r}
+#this are the data in longformat (there for we  )
+table(res_clinical$BOR, useNA = "ifany")
+```
+Test that the longer worked  (it did because each sample became 11 rows)
+
+```{r}
+1837/167
+275/25
+```
+
+```{r}
+gm_results <- res_clinical %>%
+  group_by(BOR, cell_type) %>%
+  summarise(
+    gm = if (any(fraction == 0, na.rm = TRUE)) {
+      0
+    } else {
+      exp(mean(log(fraction), na.rm = TRUE))
+    },
+    .groups = "drop"
+  )
+gm_results <- gm_results %>%
+  group_by(BOR) %>%
+  mutate(
+    percentage = gm / sum(gm) * 100
+  ) %>%
+  ungroup()
+```
+
+```{r}
+gm_results <- gm_results %>%
+  group_by(BOR) %>%
+  mutate(
+    percentage = gm / sum(gm) * 100
+  ) %>%
+  ungroup()
+```
+
+```{r}
+gm_results
+
+gm_results %>%
+  group_by(BOR) %>%
+  summarise(total = sum(percentage))
+```
+
+```{r}
+ggplot(gm_results, aes(x = BOR, y = percentage, fill = cell_type)) +
+  geom_col() +
+  labs(
+    title = "Immune cell composition by BOR",
+    x = "Best Overall Response",
+    y = "Relative immune cell composition (%)",
+    fill = "Cell type"
+  ) +
+  theme_bw()
 ```
