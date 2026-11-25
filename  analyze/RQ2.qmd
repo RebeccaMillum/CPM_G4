@@ -5,11 +5,9 @@ format: html
 
 # RQ2 - Immune-related signatures
 
-Are 18-gene T-cell–inflamed GEP (see D6; Ayers et al. (2017)) **associated** (NOT RESPONSE + RESPONSE PREDICTION) with treatment response?
+Are 18-gene T-cell–inflamed GEP (see D6; Ayers et al. (2017)) **associated** with treatment response?
 
-Reference: 10.1172/JCI91190
-
--   Using dataset as is (not filtered etc)
+Reference: 10.1172/JCI91190 (18 genes)
 
 **Suggested tasks:**
 
@@ -21,121 +19,89 @@ Reference: 10.1172/JCI91190
 
 -   **Q2.4:** Interpret the biological significance of your findings and discuss why a high T- cell–inflamed GEP score does not necessarily guarantee treatment response.
 
+## Setup and inspection of datasets
+
 ```{r}
 # Loading packages
 suppressPackageStartupMessages({
-  library(tidyverse)
-  library(DESeq2)
-  library(fgsea)
-  library(msigdbr)
-  library(dplyr)
-  library(tidyr)
-  library(gridExtra)
-  library(immunedeconv)
   library(ggplot2)
-  library(limma)
   library(pheatmap)
 })
-# garbage collection
-gc()
 
 # Load datasets
 counts <- readRDS("../data/counts.rds")
 tpm <- readRDS("../data/tpm.rds")
 clinical <- readRDS("../data/clinical.rds")
+
+# Dimensions
+print(list(
+  counts = dim(counts),
+  tpm = dim(tpm),
+  clinical = dim(clinical)
+))
+
+# align tpm to clinical table
+clinical <- clinical[clinical$BOR %in% c("NR", "R"), ]
+stopifnot(all(clinical$sample_id %in% colnames(tpm)))
+
+# reorder tpm matrix columns to match with clinical table
+tpm <-  tpm[
+  , match(clinical$sample_id, colnames(tpm)),
+  drop = FALSE
+]
+
+# verify output order
+stopifnot(
+  identical(as.character(clinical$sample_id), colnames(tpm))
+)
 ```
 
-```{r}
-# checking distribution - is it neg bion?
-head(counts)
-sample_id <- colnames(counts)[10] #choose the 10th column as sample
+Dim() outputs \[rows, columns\], in our case \[genes, samples\], which follows good practice for expression datasets.
 
-#Check that this sample is also present in the TPM data
-sample_id %in% colnames(tpm) #results = TRUE, its present
+\
+The counts and tpm matrices consist of 31087 genes and 192 patient samples.\
+The clinical matrix consist of 192 patient samples and 4 clinical variables.
 
-#extract the sample_id column + all its rows (,)
-#wrap vector in data frame --> name column in it expression
-df_counts <- data.frame( expression = counts[, sample_id] )
+TPM expression data is aligned to the clinical data, to ensure it contains the samples in correct order - to avoid incorrect GEP scoring –\> patient matching
 
-p1 <- ggplot(df_counts, aes(x = expression)) +
-  geom_histogram(
-    bins = 50,
-    fill = "pink",
-    color = "black",
-    linewidth = 0.3
-    ) + 
-  labs(
-    title = "Raw counts",
-    subtitle = sample_id,
-    x = "Raw counts",
-    y = "Number of genes" 
-    ) +
-  theme_classic(base_size = 13)
-
-#PRINT NOT SHOWING! Restarted and then it worked (Restart + terminate + new sesh) 
-print(p1)
-
-#log2 transformation
-p2 <- ggplot(df_counts, aes(x = log2(expression + 1))) + 
-  geom_histogram(
-    bins = 50,
-    fill = "lightseagreen",
-    color = "black",
-    linewidth = 0.3
-  ) +
-  labs(
-    title = "Log2-transformed counts",
-    subtitle = sample_id,
-    x = "log2(count + 1)",
-    y = "Number of genes"
-  ) +
-  theme_classic(base_size = 13)
-  
-p2
-
-#Displaying p1 and p2 side by side library(gridExtra) grid.arrange(p1, p2, ncol = 2)
-grid.arrange(p1, p2, ncol = 2)
-```
-
-## Q1: Identify the 18 genes included in the published T-cell–inflamed GEP (gene expression profile) and examine their expression in the dataset.
+## Q2.1: Identify the 18 genes included in the published T-cell–inflamed GEP (gene expression profile) and examine their expression in the dataset.
 
 ```{r}
-# STEP 1: create panel
-GEPs <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E")
+# STEP 1: create extended panel (including gene PDCD1 from week 6 exercise)
+GEP_genes <- c("TIGIT", "CD27", "CD8A", "PDCD1LG2", "LAG3", "CD274", "CXCR6", "CMKLR1", "NKG7", "CCL5", "PSMB10", "IDO1", "CXCL9", "HLA-DQA1", "CD276", "STAT1", "HLA-DRB1", "HLA-E", "PDCD1")
 
-# checking we have 18 genes
-length(GEPs)
+# checking we have 19 genes
+length(GEP_genes)
 
 # assessing dataset genes
 all_genes <- rownames(tpm)
-length(all_genes)
 
 # checking gene name format
 head(all_genes)
 
+# checking presence
+GEP_genes_present <- GEP_genes[GEP_genes %in% rownames(tpm)]
+GEP_genes_missing <- setdiff(GEP_genes, rownames(tpm))
 
-
-# STEP 2: Align tpm to clinical table
-clinical <- clinical[clinical$BOR %in% c("NR", "R"), ]
-tpm <-  tpm[, clinical$sample_id]
-stopifnot(identical(colnames(tpm), as.character(clinical$sample_id)))
-    
-
-      
-# STEP 3: Checking GEPs are present in dataset
-GEPs %in% rownames(tpm)
-GEPs[GEPs %in% rownames(tpm)]
+cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\n")
+cat("Missing genes:", paste(GEP_genes_missing, collapse = ", "), "\n")
 
 
 
-# STEP 4: Extract + logtransform g.expression
+# STEP 2: Checking GEP_genes are present in dataset
+GEP_genes %in% rownames(tpm)
+GEP_genes[GEP_genes %in% rownames(tpm)]
+
+
+
+# STEP 3: Extract + logtransform g.expression (tpm)
 # IMPORTANT TO LOG TRANSFORM (visualization + scoring)
-GEP_expression <- log2(tpm[GEPs, , drop = FALSE] +1)
+GEP_expression <- log2(tpm[GEP_genes, , drop = FALSE] +1 )
 dim(GEP_expression) # 192 patients
 
 
 
-#STEP 5: Checking expression
+#STEP 4: Checking expression
 # per gene
 summary(t(GEP_expression))
 
@@ -144,81 +110,153 @@ apply(GEP_expression, 1, median)
 
 # checking low counts (how many patients have an expression value = 0, per gene)
 rowSums(GEP_expression == 0)
+
+# inspecting HLA-DQA1 low gene counts (TPM)
+# extract tpm for HLA-DQA1 + log transformed expression + add BOR
+HLA_DQA1 <-  data.frame(
+  TPM = as.numeric(tpm["HLA-DQA1", ]),
+  GEP_expression = as.numeric(GEP_expression["HLA-DQA1", ]),
+  BOR = clinical$BOR
+)
+
+# nr of patients with zero expression in each response group
+with(HLA_DQA1, table(BOR, zero_exression = GEP_expression == 0))
+
+# count patients in each response group
+table(clinical$BOR, useNA = "ifany")
+
+# percantage
+with(
+  HLA_DQA1, 
+  tapply(GEP_expression == 0, BOR, function(x) mean(x) * 100)
+)
 ```
 
-Most genes are expressed in most patients, except HLA-DQA1 (absent in 129 patients!)
+Checking the gene name format to ensure same format is used (dataset vs subset of T cell inflammed genes)
+
+\
+Most genes are expressed in most patients, except HLA-DQA1.\
+HLA-DQA1 has a TPM expression of 0 in 129 out of 192 samples, specifically:
+
+-   113 out of 167 NR patients, corresponding to \~68%
+
+-   16 out of 25 R patients, corresponding to 64%\
 
 ```{r}
-# STEP 6: Visualize
+# STEP 5: Visualize - expression heatmap
 annotation <- data.frame(Response = clinical$BOR,
                          row.names = clinical$sample_id)
 
 ord <- order(clinical$BOR)
 
-pheatmap(GEP_expression[, ord],
+pheatmap(GEP_expression[, ord, drop = FALSE],
          #standardize each gene ACROSS patients
-         scale = "row",      
+         scale = "row",
          annotation_col = annotation[ord, , drop = FALSE],
          cluster_cols = FALSE,
-         show_colnames = FALSE)
+         show_colnames = FALSE,
+         main = "GEP gene expression according to response group"
+         )
 
-#checking correlation of genes
-pheatmap(cor(t(GEP_expression)))
+
+# checking correlation between genes using spearman
+# checking GEP gene expressioin has valid sd first (> 0)
+gene_sd <- apply(GEP_expression, 1, sd)
+
+stopifnot(
+  all(is.finite(gene_sd)),
+  all(gene_sd > 0)
+)
+
+# transpose (genes = cols, patients = observations)
+gene_cor <- cor(
+  t(GEP_expression),
+  method = "spearman"
+  )
+
+pheatmap(
+  gene_cor, 
+  main = "Spearman correlation between GEP genes",
+  breaks = seq(-1, 1, length.out = 101),
+  color = colorRampPalette(c("blue", "white", "red"))(100)
+)
 ```
 
-heatmap: suggest patterns –\> confirm using wilcoxon test
+Heatmap:
 
--   standardized expression for each gene + patient
+-   Used to suggest patterns
 
--   some concentration of higher expression in responder group
+GEP_expression heatmap:
 
--   row = genes, cols = patients
+-   Each row = gene and each column = patient
 
--   left tree = hierchal clustering (based on genes with sim patterns)
+-   Colors represent the gene wise z scores across patients (and not absolut TPM values)
+
+-   Tree = hierchal clustering (based on genes with sim patterns)
+
+-   Patients ordered by response group
+
+Gene-gene spearman correlation heatmap:
+
+-   Rows + cols = genes
+
+<!-- -->
+
+-   Correlation coefficients describe the gene-gene patterns (+/- = direction, size = strength), but not statistical significance or treatment response
+
+-   Positive correlation = patients with higher expression of gene X tend to have higher expression of gene Y
+
+-   Negative correlation = patients with higher expression of gene X tend to have lower expression of gene Y
+
+-   The correlation does not = similar absolute expression values
+
+-   Dendogram = group genes with similar correlation profiles
 
 ## **Q2.2:** Calculate a T-cell–inflamed GEP score for each patient.
 
 -   Standardize each gene across patients (avoid dominating genes)
 
--   average across the 18 genes per patient (1 nr per patient –\> if high =\> more inflammed compared to other patients)
-
--   day 6
+-   Average across the 19 genes per patient (1 nr per patient –\> if high =\> more inflamed compared to other patients)
 
 ```{r}
 # STEP 1: confirming data
 dim(GEP_expression)
 
-stopifnot(identical(colnames(GEP_expression),
+stopifnot(
+  identical(
+    colnames(GEP_expression),
                     as.character(clinical$sample_id)))
+
+
 
 # STEP 2: Check no gene is constant (0 var cant be standardized)
 gene_sd <- apply(GEP_expression, 1, sd)
 gene_sd
 any(gene_sd == 0)
-
-
 ```
 
 No constant genes –\> continue to standardization
 
-scale = standardize cols (have to transpose t(), as genes are rows)
+Scale = standardize cols (have to transpose t(), as genes are rows)
 
-transpose gene expression –\> scale –\> transpose back again (genes = rows)
+Transpose gene expression –\> scale –\> transpose back again (genes = rows)
 
 ```{r}
 # STEP 3: Standardize across patients
 GEP_scaled <- t(scale(t(GEP_expression)))
 
 # checking standarzation 
-round(rowMeans(GEP_scaled), 10) #mean of 0
-apply(GEP_scaled, 1, sd) #sd of 1
+round(rowMeans(GEP_scaled), 10) # mean of 0
+apply(GEP_scaled, 1, sd) # sd of 1
 
-# STEP 4: Average ACROSS genes
+
+
+# STEP 4: Average standardized expression ACROSS the gene subset
 GEP_scores <- colMeans(GEP_scaled)
 
 length(GEP_scores)
 summary(GEP_scores)
-head(GEP_scores)
+
 
 
 # STEP 5: add clinical data (building data frame)
@@ -228,179 +266,215 @@ df <- data.frame(
   GEP_score = GEP_scores
 )
 
-#safety check --> confirm scores matches correct patients
-stopifnot(identical(df$sample_id, names(GEP_scores)))
+# numeric coding (required for spearman response analysis)
+# responders = 1, non responders = 0
+df$Response_binary <- as.integer(df$BOR == "R")
+
+# safety check --> confirm scores matches correct patients
+stopifnot(
+  identical(
+    df$sample_id, names(GEP_scores)),
+  all(is.finite(df$GEP_score))
+  )
+
 head(df)
 table(df$BOR, useNA = "ifany") #add NA column if any present
 
 
 # STEP 6: visualize
-hist(df$GEP_score, breaks = 20, main = "GEP_score distribution")
+hist(
+  df$GEP_score,
+  breaks = 20,
+  main = "GEP_score distribution",
+  xlab = "Mean standardized expression of the 19 genes"
+  )
+
+# summary per response group
 tapply(df$GEP_score, df$BOR, median)
 ```
 
-colMeans = average down each col (patients across 18 genes) –\> output = vector with l = 192
+GEP score (cohort relative, not universally true)
 
-NR = 167
+-   Positive score = indicative of a higher average standardized expression (relative to this cohort)
 
-R = 25
+-   Negative score = indicative of a lower average standardized expression (relative to this cohort)
+
+Summary per response group:
+
+-   Responders have a higher median T cell inflammed GEP score (\~0.676), compared to patients with progressive disease (\~-0.096)
+
+-   Could indicate a more active T cell inflammation profile in responders
 
 ## **Q2.3**: Investigate whether patients with higher GEP scores are more likely to respond to anti-PD-L1 treatment.
+
+AKA is the score associated with the treatment response?
 
 = Compare GEP score to response group
 
 Our df is defined with NR as reference group
-
-Step 1 = overview of medians + quartiles (size + direction of difference) of NR + R groups
 
 Wilcon rank sum test = compare 2 independent groups (without assuming normal distr.) (rec week6)
 
 -   0 hyp: scores in the 2 groups come from the same distribution
 
 ```{r}
-# reusing df from 2.3
+# group comparison from w6 exercises
+# reusing df from 2.2
 
-# STEP 1: Describe each group (extra)
-tapply(df$GEP_score, df$BOR, summary)
+# STEP 1: Test difference between NR and R groups (wilcoxon rank sum test)
+GEP_response_test <- wilcox.test(
+  GEP_score ~ BOR,
+  data = df,
+  exact = FALSE)
+
+GEP_response_test
 
 
 
-# STEP 2: Test difference between NR and R (wilcoxon rank sum test)
-GEP_test <- wilcox.test(GEP_score ~ BOR, data = df, exact = FALSE)
+# STEP 2: Plot difference
+# helper function from w6 ex (advanced)
+plot_Response_boxplot <- function(data, variable, y_label, test_result) {
 
-# STEP 3: Plot difference
-ggplot(df,
-       aes(x= BOR, y = GEP_score)) +
-  geom_boxplot(outlier.shape = NA) + #dont draw outliers twice
-  geom_jitter(width = 0.12, alpha = 0.6) + #add small hori shift to each point
-  annotate("text", x = Inf, y = Inf,
-           label = paste0("p = ", signif(GEP_test$p.value, 3)),
-           hjust = 1.1, vjust = 1.5) + 
-  labs(x = "Response (NR = progressive disease, R = complete response)",
-       y = "T cell inflamed GEP score") + 
-  theme_minimal()
-```
+  # keep the groups in order
+  data$BOR <- factor(data$BOR, levels = c("NR", "R"))
 
-```{r}
-# advanced plot
+  # descriptive response labels with patient counts
+  n_per_group <- table(data$BOR)
 
-# Descriptive group labels with patient counts (extra)
-n_per_group <- table(df$BOR)
-group_labels <- c(
-  NR = paste0("Progressive disease (NR)\nn = ", n_per_group["NR"]),
-  R  = paste0("Complete response (R)\nn = ", n_per_group["R"])
+  group_labels <- c(
+    NR = paste0(
+      "Progressive disease (NR)\nn = ",
+      n_per_group["NR"]
+    ),
+    R = paste0(
+      "Complete response (R)\nn = ",
+      n_per_group["R"]
+    )
+  )
+
+  # red = NR; blue = R
+  group_colours <- c(
+    NR = "#D9534F",
+    R = "#2E86C1"
+  )
+
+  ggplot(
+    data,
+    aes(
+      x = BOR,
+      y = .data[[variable]],
+      fill = BOR,
+      colour = BOR
+    )
+  ) +
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      colour = "grey60"
+    ) +
+    geom_boxplot(
+      outlier.shape = NA,
+      alpha = 0.25,
+      width = 0.5
+    ) +
+    geom_jitter(
+      width = 0.12,
+      height = 0,
+      alpha = 0.7,
+      size = 2
+    ) +
+    annotate(
+      "text",
+      x = Inf,
+      y = Inf,
+      label = paste0(
+        "Wilcoxon p = ",
+        signif(test_result$p.value, 3)
+      ),
+      hjust = 1.1,
+      vjust = 1.5,
+      colour = "black"
+    ) +
+    scale_fill_manual(values = group_colours) +
+    scale_colour_manual(values = group_colours) +
+    scale_x_discrete(labels = group_labels) +
+    labs(
+      title = "T-cell–inflamed GEP score by treatment response",
+      subtitle = paste0(
+        "Each dot is one patient; ",
+        "dashed line = cohort average (score 0)"
+      ),
+      x = NULL,
+      y = y_label
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "none")
+}
+
+# creating the plot
+plot_Response_boxplot(
+  data = df,
+  variable = "GEP_score",
+  y_label = "T-cell inflamed GEP score (mean z-score of the 19 genes)",
+  test_result = GEP_response_test
 )
 
-group_colours <- c(NR = "#D9534F", R = "#2E86C1")   # red = NR, blue = R
 
-ggplot(df, aes(x = BOR, y = GEP_score, fill = BOR, colour = BOR)) +
-  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
-  geom_boxplot(outlier.shape = NA, alpha = 0.25, width = 0.5) +   # don't draw outliers twice
-  geom_jitter(width = 0.12, alpha = 0.7, size = 2) +
-  annotate("text", x = Inf, y = Inf,
-           label = paste0("Wilcoxon p = ", signif(GEP_test$p.value, 3)),
-           hjust = 1.1, vjust = 1.5, colour = "black") +
-  scale_fill_manual(values = group_colours) +
-  scale_colour_manual(values = group_colours) +
-  scale_x_discrete(labels = group_labels) +
-  labs(
-    title = "T-cell–inflamed GEP score by treatment response",
-    subtitle = "Each dot is one patient; dashed line = cohort average (score 0)",
-    x = NULL,
-    y = "T-cell–inflamed GEP score\n(mean z-score of 18 genes)"
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(legend.position = "none")
+# STEP 3: Spearman correlation with binary response
+# response is R = 1 and NR = 0
+GEP_response_cor <- cor.test(
+  x = df$GEP_score,
+  y = df$Response_binary,
+  method = "spearman",
+  exact = FALSE
+)
+
+GEP_response_cor
+
+# Compact results table
+response_results <- data.frame(
+  n_NR = sum(df$BOR == "NR"),
+  n_R = sum(df$BOR == "R"),
+  median_NR = median(df$GEP_score[df$BOR == "NR"]),
+  median_R = median(df$GEP_score[df$BOR == "R"]),
+  Spearman_rho = unname(GEP_response_cor$estimate),
+  Spearman_p = GEP_response_cor$p.value,
+  Wilcoxon_p = GEP_response_test$p.value
+)
+
+response_results
 ```
 
-Plot: Each dot = patient sample, height = patient T cell inflamed GEP score
+-   Positive spearman coefficient is indicative of responders having higher GEP score ranks, compared to non-responders
 
--   Median of responders are higher than NR =\> responders tend to have higher GEP scores
+-   Spearman does not estimate response probability or odds ratio
 
--   OBS R is smaller than NR (group size)
+-   Spearman and Wilcoxon analyze rank based associations in the same patient cohort - they dont validate each other
 
-Adding quantifying step on top of p value estimate (not sure if i should include)
-
-```{r}
-# Prob that a random R patient will have a higher score than a random NR patient
-n_NR <- sum(df$BOR == "NR"); n_R <-  sum(df$BOR == "R")
-
-AUC <- 1 - unname(GEP_test$statistic) / (n_NR * n_R)
-AUC #if 1 = perfect, if 0.5 = no seperation
-
-
-# Odds of response per 1 SD increase in score
-df$GEP_SD <-  as.numeric(scale(df$GEP_score))
-fit <- glm((BOR == "R") ~ GEP_SD, data = df, family = binomial)
-exp(cbind(OR = coef(fit), confint.default(fit)))["GEP_SD", ]
-summary(fit)
-```
-
-AUC = 0.74 =\> some seperation of groups (prob that a random responser has a higher GEP score than a random non responder)
-
--   AUC = effect size (no validated perf eval, no held out data)
-
-Each 1 SD increase in score –\> \* odds of complete response by 2.4
-
-ODDS ARE NOT PROBS! (odds = p/(1-p))
-
-High inflammed profile scores are associated with higher odds of complete response in our data
-
-"Each one-standard-deviation increase in the T-cell–inflamed score was associated with 2.4-fold higher odds of complete response (OR 2.41, 95% CI 1.50–3.87). The wide interval reflects uncertainty in the effect size, and this is an association within one cohort, not a validated predictor."
+-   Notice the R group size is smaller than NR
 
 ## **Q2.4:** Interpret the biological significance of your findings and discuss why a high T- cell–inflamed GEP score does not necessarily guarantee treatment response.
 
--   Have analyzed patterns in our dataset
+Assessing; direction of association, group distributions, spearman coefficient and p values together
 
-    -   Logistic regression: does score + response move together in the data?
+The gene panel is indicative of a T cell inflamed tumor environment (abundance of immune cells, inerferon related signaling, antigen presentation and inhibitory immune regulation)
 
-    -   odds ratio of
+A high score is not = a guaranteed treatment response.
 
--   In this cohort
+Bulk RNA expression doesnt infer the spatial location of immune cells or whether immune cell reach the tumor cells OR if other tumor resistance mechanisms prevent effective killing of these
 
--   Associated with (score NOT = response (havent adjusted for confounders eg tumor purity (Q4))
+Observed associations/patterns within the cohort has been analyzed. No validated predictor or any individual response can be obtained from this.
 
--   Higher odds (not prob)
+The analysis hasnt adjusted for any possible confounders (eg tumor purity, see Q4)
 
--   CANNOT conclude higher t cell inflammed GEP scores = predicts individual patient response!
+**Conclusions:**
 
-    -   Same data used to find + test pattern
+-   Responders had a higher observed T-cell–inflamed GEP score on average
 
-    -   No threshold + no validation (no cut off score for when someone is a likely responder)
-
-Conclusions:
-
--   Responders have a higher T-cell–inflamed GEP score on average
-
--   Higher score –\> higher odds of response
-
-Cannot conclude:
+**Cannot conclude:**
 
 -   Score value indicates response
 
 -   Score dictates which patient will respond to treatment
 
 -   If the score would be similar in another cohort
-
-Higher T cell inflammes score = tumor has already activated the interferon gamma driven T cell response (required for checkpoint blockade to work)
-
-The genes are indicative of an inflammed tumour microenvironment.\
-The 18 genes are interferon-gamma marker genes (CD8A, NKG7, CCL5, CXCL9 (chemokine, recruits activated CD8+ effector T cells)), STAT1) and checkpoint or antigen presenting genes (CD274, PDCD1LG2, LAG3, TIGIT, HLA-DRB1, PSMB10)
-
-Chemokine recruits activated CD8+ effector T cells –\> T cells release IFN-gamma –\> raises antigen presentation + checkpoint ligand expression
-
--   High score = pre existing anti tumor immune response –\> amplified (breaks on this removed) in PD1 therapy
-
-Why high score IS NOT = guaranteed response:
-
--   The score is 1 dim = measures how MUCH immune response, not if it works
-
--   T cells can be present but not within the tumor microenv. (stuck in stroma around tumor)
-
-    -   BULK RNA averages all tissues (includes stroma cells etc)
-
--   Other cells can cancel T cell activation (eg neutrophils, monocytes, macrophages)
-
--   Tumor cells can be masked from T cells
-
--   Consider tumour mutational burden + neoantigens
