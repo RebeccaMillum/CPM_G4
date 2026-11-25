@@ -30,7 +30,7 @@ tpm <- readRDS("../data/tpm.rds")
 clinical <- readRDS("../data/clinical.rds")
 ```
 
-Qullaty cheek of data
+Quality check of data
 
 ```{r}
 # Check whether all phenotype RNA IDs are represented in the expression matrix.
@@ -53,7 +53,7 @@ print(table(clinical$BOR, useNA = "ifany"))
 ```
 
 ```{r}
-#Helper fuctiones week 6
+#Helper functions week 6, but adjust color for box plot
 plot_Response_boxplot <- function(data, variable, y_label, test_result) {
   ggplot(data, aes(x = Response, y = .data[[variable]], fill = Response)) +
     geom_boxplot(outlier.shape = NA) +
@@ -120,7 +120,7 @@ summary(TMB)
 summary(PD1)
 ```
 
-## Part 2 : Results before Adjust for tumor purity
+## Part 2: Results before adjusting for tumor purity
 
 Calculate a T cell–inflamed gene-expression score from the supplied GEP gene set.
 
@@ -154,7 +154,7 @@ GEP_scores <- colMeans(GEP_expr_scaled, na.rm = TRUE)
 summary(GEP_scores)
 ```
 
-Her we will make a dataframe for studing where the biomarkes, TMB, PD1 and GEP_scores assostion whit a responce class
+Here we will make a dataframe for studying the association of biomarkers, TMB, PD1, and GEP_scores with a response class
 
 ```{r}
 df <- data.frame(
@@ -171,9 +171,9 @@ summary(df)
 
 ```
 
-From the summery table we know that we have 167 None responderes and 25 Responderes. We can se that TMB have 42 sampels whit NA
+From the summary table, we know that we have 167 non-responders and 25 responders. We can see that TMB has 42 samples with NA
 
-Next we perform the Wilcox test, which is a non-parametric stastical test, which uses rank values (good if data is not normal distribute)
+Next, we perform the Wilcox test, which is a non-parametric statistical test that uses rank values (good if data is not normally distributed)
 
 ```{r}
 TMB_Response_test <- wilcox.test(TMB ~ Response, data = df)
@@ -191,9 +191,9 @@ PD1_Response_test
 GEP_Response_test
 ```
 
-In the result of the wilcox test we can se that TBM,PD1 and GEP all have a pvalue \< 0.05 which means that the result is statsiqly siqnificat.
+In the results of the Wilcox test, we can see that TMB, PD1, and GEP all have a p-value < 0.05, which means that the result is statistically significant.
 
-Now we plot the relationship betwen TMB and Responce class
+Now we plot the relationship between TMB and response class
 
 ```{r}
 plot_Response_boxplot(df, "TMB", "Tumor mutational burden", TMB_Response_test)
@@ -207,11 +207,11 @@ plot_Response_boxplot(df, "PD1", "PDCD1 expression", PD1_Response_test)
 plot_Response_boxplot(df, "GEP_scores", "T cell–inflamed GEP score", GEP_Response_test)
 ```
 
-Above we can se the distributiones for the Responderes and No-respondes for PD-1, GP-score and TMB
+Above, we can see the distributions for the responders and non-responders for PD-1, GEP score, and TMB
 
-## Part 3 : Results Adjust for tumor purity
+## Part 3: Results Adjusted for Tumor Purity
 
-Now we estimate the Toumer purity, using the deconvolute fungtion, this is doon on the tpm normalize data, which mactges the genes to a data set, we have 139 geans that overlab whit the StromalSignature and 141 whit ImmuneSignature.
+Now we estimate the tumor purity using the deconvolute function. This is doon on the TPM-normalized data, which matches the genes to a dataset; we have 139 genes that overlap with the StromalSignature and 141 with ImmuneSignature.
 
 ```{r}
 #5. Estimate tumor purity
@@ -231,10 +231,10 @@ rownames(purity)
 ```
 
 ```         
-StromalScore:
-ImmuneScore:
-ESTIMATEScore:
-TumorPurity:  
+StromalScore: Higher values indicate greater stromal cell presence (e.g., fibroblasts, endothelial cells) in the tumor microenvironment.
+ImmuneScore: Higher values indicate greater immune cell infiltration.
+ESTIMATEScore: Composite measure of total non-tumor cellular admixture; higher values mean lower tumor purity.
+TumorPurity:  Estimated proportion (0 to 1) of malignant tumor cells in the sample.
 ```
 
 ```{r}
@@ -260,17 +260,17 @@ stopifnot(length(tumor_purity) == nrow(df))
 summary(tumor_purity)
 ```
 
-Her we can se that the sampel that is estimete to be the most pure is 96 % pure and the least pure is 30 % pure
+Here we can see that the sample that is estimated to be the most pure is 96 % pure, and the least pure is 30 % pure
 
 ```{r}
 df$purity <- tumor_purity
 ```
 
-### Corelation betwen tumor purity and Biomarkeres
+### Correlation between tumor purity and biomarkers
 
 ```{r}
 #How strongly are the biomarkers related to tumor purity?
-# for this test the spearman corelation is udede as it do not asume a normal distribution
+# For this test, the Spearman correlation is used as it does not assume a normal distribution
 TMB_purity_cor <- cor.test(
   df$purity, df$TMB,
   method = "spearman",
@@ -295,19 +295,19 @@ GEP_purity_cor <- cor.test(
 TMB_purity_cor
 ```
 
-There is not a siqnuficat relationship betwen TMB and the preditet tuoumer purity
+There is no statistically significant relationship between TMB and the predicted tumor purity
 
 ```{r}
 PD1_purity_cor
 ```
 
-There is a siqnuficat relationship betwen PD1 and the preditet tuoumer purity
+There is a statistically significant relationship between PD1 and the predicted tumor purity
 
 ```{r}
 GEP_purity_cor
 ```
 
-There is a siqnuficat relationship betwen GEP score and the preditet tuoumer purity
+There is a significant relationship between GEP score and the predicted tumor purity
 
 ```{r}
 plot_association(
@@ -331,7 +331,7 @@ plot_association(
 )
 ```
 
-### Results where expression is adjust the for tumor purity Wilcox test and Box-plots
+### Results where expression is adjusted for tumor purity Wilcox test and Box-plots
 
 Note from week 6:
 
@@ -395,7 +395,7 @@ plot_Response_boxplot(
 )
 ```
 
-### Heatmap of the adjust exprection of GEP expression
+### Heatmap of the immune-adjusted expression of GEP genes
 
 ```{r}
 library(pheatmap)
@@ -433,9 +433,9 @@ pheatmap(
 )
 ```
 
-### Test if there is a difrence in the predicted composition of immune cells between responders and non-respondes
+### Test if there is a difference in the predicted composition of immune cells between responders and non-responders
 
-##### Inluding uncharacterized cells
+##### Including uncharacterized cells
 
 ```{r}
 # Make sure tpm is a matrix
@@ -450,7 +450,7 @@ res <- immunedeconv::deconvolute(
 
 # Display results
 knitr::kable(res, digits = 2)
-#In the tabel below we se the predicet cell type pr. sampel
+#In the table below, we see the predicted cell type pr. sampel
 ```
 
 ```{r}
@@ -473,7 +473,7 @@ res_clinical <- res_long %>%
 ```
 
 ```{r}
-#this are the data in longformat (there for we  )
+# these are the data in long format
 table(res_clinical$BOR, useNA = "ifany")
 ```
 
@@ -484,7 +484,7 @@ Test that the longer worked (it did because each sample became 11 rows)
 275/25
 ```
 
-The geometrix mean for each imune cell in each call is calculate per responce group
+The geometrix mean for each immune cell in each call is calculated per response group.
 
 ```{r}
 #
@@ -567,4 +567,4 @@ ggplot(gm_results, aes(x = BOR, y = percentage, fill = cell_type)) +
   theme_bw()
 ```
 
-This is not a statsical test / annlyis, more analyses woud need to folow to prove this realtion ship, but there is an indication that there is a diffince in the compostion of imune celles betwen responce and non responders, spicetion in the presees of M2 macophages which, dont seam to dominatet at the non respondes
+This is not a statsical test / annlyis, more analyses woud need to folow to prove this relationship, but there is an indication that there is a difference in the compostion of imune celles betwen responce and non responders, spicetion in the presees of M2 macophages which, dont seam to dominatet at the non respondes
