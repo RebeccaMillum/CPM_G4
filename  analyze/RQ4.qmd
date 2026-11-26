@@ -54,29 +54,91 @@ print(table(clinical$BOR, useNA = "ifany"))
 
 ```{r}
 #Helper functions week 6, but adjust color for box plot
+
 plot_Response_boxplot <- function(data, variable, y_label, test_result) {
-  ggplot(data, aes(x = Response, y = .data[[variable]], fill = Response)) +
-    geom_boxplot(outlier.shape = NA) +
-    geom_jitter(aes(color = Response), width = 0.12, alpha = 0.6) +
+
+  # Keep response groups in the correct order
+  data$Response <- factor(data$Response, levels = c("NR", "R"))
+
+  # Count patients in each group
+  n_per_group <- table(data$Response)
+
+  # Descriptive response labels with patient counts
+  group_labels <- c(
+    NR = paste0(
+      "Progressive disease (NR)\nn = ",
+      n_per_group["NR"]
+    ),
+    R = paste0(
+      "Complete response (R)\nn = ",
+      n_per_group["R"]
+    )
+  )
+
+  # Red = NR; blue = R
+  group_colours <- c(
+    NR = "#D9534F",
+    R = "#2E86C1"
+  )
+
+  ggplot(
+    data,
+    aes(
+      x = Response,
+      y = .data[[variable]],
+      fill = Response,
+      colour = Response
+    )
+  ) +
+    # Reference line at zero
+    geom_hline(
+      yintercept = 0,
+      linetype = "dashed",
+      colour = "grey60"
+    ) +
+    geom_boxplot(
+      outlier.shape = NA,
+      alpha = 0.25,
+      width = 0.5
+    ) +
+    geom_jitter(
+      width = 0.12,
+      height = 0,
+      alpha = 0.7,
+      size = 2
+    ) +
     annotate(
       "text",
-      x = Inf, y = Inf,
-      label = paste0("p = ", signif(test_result$p.value, 3)),
-      hjust = 1.1, vjust = 1.5
+      x = Inf,
+      y = Inf,
+      label = paste0(
+        "Wilcoxon p = ",
+        signif(test_result$p.value, 3)
+      ),
+      hjust = 1.1,
+      vjust = 1.5,
+      colour = "black"
     ) +
-    scale_fill_manual(
-      values = c("NR" = "#D9534F", "R" = "#2E86C1")
-    ) +
-    scale_color_manual(
-      values = c("NR" = "#D9534F", "R" = "#2E86C1")
-    ) +
+    scale_fill_manual(values = group_colours) +
+    scale_colour_manual(values = group_colours) +
+    scale_x_discrete(labels = group_labels) +
     labs(
-      x = "Response class",
+      title = paste(y_label, "by treatment response"),
+      subtitle = paste0(
+        "Each dot is one patient; ",
+        "dashed line = score 0"
+      ),
+      x = NULL,
       y = y_label
     ) +
-    theme_minimal() +
-    theme(legend.position = "none")
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(face = "bold"),
+      axis.text.x = element_text(colour = "black")
+    )
 }
+
 
 plot_association <- function(data, x, y, x_label, y_label, cor_test) {
   rho <- unname(cor_test$estimate)
@@ -398,7 +460,6 @@ plot_Response_boxplot(
 ### Heatmap of the immune-adjusted expression of GEP genes
 
 ```{r}
-library(pheatmap)
 GEP_expression <- log2(expr_adjusted[GEP_genes, , drop = FALSE] +1 )
 dim(GEP_expression) # 192 patients
 
@@ -431,6 +492,66 @@ pheatmap(
   show_colnames = FALSE,
   main = "GEP gene expression according to response group"
 )
+```
+
+```{r}
+#same heatmap as above just diffrinft format:
+
+# color scale
+heatmap_colours <- colorRampPalette(
+  c("#D8B365", "white", "#542788")
+)(100)
+
+#########################
+# gene expression heatmap
+#########################
+
+# standardize each gene across patients
+GEP_heatmap_scaled <- t(scale(t(GEP_expression)))
+
+# order patients by response (NR --> R)
+ord <- order(factor(clinical$BOR, levels = c("NR", "R")))
+GEP_heatmap_scaled <- GEP_heatmap_scaled[, ord]
+
+# long format (one row per gene-patient combo)
+heatmap_df <- as.data.frame(as.table(GEP_heatmap_scaled))
+colnames(heatmap_df) <- c("Gene", "Sample", "Expression")
+
+# keep patient order and display genes in panel order
+heatmap_df$Sample <- factor(heatmap_df$Sample,
+                            levels = colnames(GEP_heatmap_scaled))
+heatmap_df$Gene <- factor(heatmap_df$Gene,
+                          levels = rev(rownames(GEP_heatmap_scaled)))
+
+# group sizes (for split line + labels)
+n_NR <- sum(clinical$BOR == "NR")
+n_R  <- sum(clinical$BOR == "R")
+
+# symmetric limits keep white at z-score 0
+z_max <- max(abs(heatmap_df$Expression))
+
+ggplot(heatmap_df, aes(x = Sample, y = Gene, fill = Expression)) +
+  geom_tile() +
+  geom_vline(xintercept = n_NR + 0.5, linetype = "solid",
+             color = "black", linewidth = 0.8) +
+  annotate("text", x = n_NR / 2, y = -Inf,
+           label = paste0("NR (n = ", n_NR, ")"),
+           vjust = 1.8, fontface = "bold") +
+  annotate("text", x = n_NR + n_R / 2, y = -Inf,
+           label = paste0("R (n = ", n_R, ")"),
+           vjust = 1.8, fontface = "bold") +
+  scale_fill_gradientn(colours = heatmap_colours,
+                       limits = c(-z_max, z_max),
+                       name = "Gene-wise\nz-score") +
+  coord_cartesian(clip = "off") +
+  labs(title = "Gene wise expression of the 19 GEP genes",
+       x = "Patients ordered by response", y = NULL) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_text(margin = margin(t = 30)),
+        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold"),
+        plot.margin = margin(10, 5.5, 10, 5.5))
 ```
 
 ### Test if there is a difference in the predicted composition of immune cells between responders and non-responders
