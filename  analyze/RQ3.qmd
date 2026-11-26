@@ -26,10 +26,13 @@ library(patchwork)
 # folder with the data (change here if the path is different)
 data_dir <- "../22123_cpm/CPM_G4/data"
 
-counts   <- readRDS(file.path(data_dir, "counts.rds"))
-tpm      <- readRDS(file.path(data_dir, "tpm.rds"))
-clinical <- readRDS(file.path(data_dir, "clinical.rds"))
+#counts   <- readRDS(file.path(data_dir, "counts.rds"))
+#tpm      <- readRDS(file.path(data_dir, "tpm.rds"))
+#clinical <- readRDS(file.path(data_dir, "clinical.rds"))
 
+counts <- readRDS("../data/counts.rds")
+tpm <- readRDS("../data/tpm.rds")
+clinical <- readRDS("../data/clinical.rds")
 # checking the columns
 colnames(clinical)
 head(clinical)
