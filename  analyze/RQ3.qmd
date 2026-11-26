@@ -2,8 +2,6 @@
 title: "RQ3"
 format: html
 editor: visual
-  markdown: 
-    wrap: 72
 ---
 
 # Question nr. 3
