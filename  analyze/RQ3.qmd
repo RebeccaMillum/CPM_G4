@@ -53,7 +53,7 @@ non_responder_values <- c("NR")
 tmb_col <- "TMB"
 #tpm 
 # TPM is normalized (gene length + depth) but on a LINEAR scale, so we log2 it
-log_transform_tpm <- FALSE
+log_transform_tpm <- TRUE
 
 group_colours <- c("Non-responder" = "#D9534F", "Responder" = "#2E86C1")
 ```
@@ -84,27 +84,19 @@ stopifnot(identical(colnames(tpm), ids))
 ## Separating 3 biomarkers
 
 ```{r}
-# expression matrix in log2 scale
-expr <- as.matrix(tpm)
-if (log_transform_tpm) expr <- log2(expr + 1)
+# PD-1 = PDCD1 — raw TPM (NO log2), to match RQ4
+pd1 <- as.numeric(tpm["PDCD1", ])
 
-# PD-1 = PDCD1 gene expression
-stopifnot("PDCD1" %in% rownames(expr))
-pd1 <- as.numeric(expr["PDCD1", ])
-
-# T-cell-inflamed GEP- from article 
-gep_genes <- c("CCL5", "CD27", "CD274", "CD276", "CD8A", "CMKLR1", "CXCL9",
-               "CXCR6", "HLA-DQA1", "HLA-DRB1", "HLA-E", "IDO1", "LAG3",
-               "NKG7", "PDCD1LG2", "PSMB10", "STAT1", "TIGIT")
-
-gep_present <- intersect(gep_genes, rownames(expr))
+# T-cell-inflamed GEP — 19-gene list (incl. PDCD1), log2(TPM+1), to match RQ4
+gep_genes <- c("TIGIT","CD27","CD8A","PDCD1LG2","LAG3","CD274","CXCR6","CMKLR1",
+               "NKG7","CCL5","PSMB10","IDO1","CXCL9","HLA-DQA1","CD276","STAT1",
+               "HLA-DRB1","HLA-E","PDCD1")
+gep_present <- gep_genes[gep_genes %in% rownames(tpm)]
 cat("Found GEP genes:", length(gep_present), "of", length(gep_genes), "\n")
-cat("Missing ones:", paste(setdiff(gep_genes, gep_present), collapse = ", "), "\n")
 
-# standardize each gene across samples (scale by rows),
-# then mean across genes (Exercise 6 -> average standardized expression)
-gep_mat    <- expr[gep_present, , drop = FALSE]
-gep_scaled <- t(scale(t(gep_mat)))   # z-score
+# log2 only for GEP, then z-score per gene, then mean across genes
+gep_expr   <- log2(tpm[gep_present, , drop = FALSE] + 1)
+gep_scaled <- t(scale(t(gep_expr)))
 gep_score  <- colMeans(gep_scaled, na.rm = TRUE)
 
 # TMB from clinical data
