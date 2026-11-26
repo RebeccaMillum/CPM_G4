@@ -191,7 +191,7 @@ PD1_Response_test
 GEP_Response_test
 ```
 
-In the results of the Wilcox test, we can see that TMB, PD1, and GEP all have a p-value < 0.05, which means that the result is statistically significant.
+In the results of the Wilcox test, we can see that TMB, PD1, and GEP all have a p-value \< 0.05, which means that the result is statistically significant.
 
 Now we plot the relationship between TMB and response class
 
