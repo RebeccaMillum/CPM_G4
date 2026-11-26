@@ -399,18 +399,80 @@ Note from week 6:
 
 ![](images/clipboard-1166984077.png)
 
+#### Whit log2 trasformation
+
 ```{r}
 expr_adjusted <- removeBatchEffect(
   tpm,
   covariates = matrix(df$purity, ncol = 1)
 )
 
-PD1_adjusted <- log2(as.numeric(expr_adjusted["PDCD1",  , drop = FALSE] +1 ))#log2(tpm[GEP_genes, , drop = FALSE] +1 )
+PD1_adjusted <- log2(as.numeric(expr_adjusted["PDCD1",  , drop = FALSE] +1 ))
 
 GEP_expr_adjusted <- log2(expr_adjusted[
   GEP_genes_present,
   , drop = FALSE] +1
 )
+
+GEP_expr_adjusted_scaled <- t(scale(t(GEP_expr_adjusted)))
+GEP_scores_adjusted <- colMeans(
+  GEP_expr_adjusted_scaled,
+  na.rm = TRUE
+)
+
+df_adjusted <- data.frame(
+  sample = clinical$sample_id,
+  PD1 = PD1_adjusted,
+  GEP_scores = GEP_scores_adjusted,
+  Response = factor(clinical$BOR)
+)
+
+stopifnot(identical(df_adjusted$sample, colnames(expr_adjusted)))
+```
+
+```{r}
+PD1_Response_adjusted_test <- wilcox.test(PD1 ~ Response, data = df_adjusted)
+GEP_Response_adjusted_test <- wilcox.test(GEP_scores ~ Response, data = df_adjusted)
+
+
+PD1_Response_adjusted_test
+```
+
+```{r}
+GEP_Response_adjusted_test
+```
+
+```{r}
+plot_Response_boxplot(
+  df_adjusted, "PD1",
+  "Purity-adjusted PDCD1 expression (log2)",
+  PD1_Response_adjusted_test
+)
+```
+
+```{r}
+plot_Response_boxplot(
+  df_adjusted, "GEP_scores",
+  "Purity-adjusted T cell–inflamed GEP score (log2) ",
+  GEP_Response_adjusted_test
+)
+```
+
+#### Not log2 transformed
+
+```{r}
+expr_adjusted <- removeBatchEffect(
+  tpm,
+  covariates = matrix(df$purity, ncol = 1)
+)
+
+PD1_adjusted <- as.numeric(expr_adjusted["PDCD1", ])
+
+GEP_expr_adjusted <- expr_adjusted[
+  GEP_genes_present,
+  ,
+  drop = FALSE
+]
 
 GEP_expr_adjusted_scaled <- t(scale(t(GEP_expr_adjusted)))
 GEP_scores_adjusted <- colMeans(
@@ -451,7 +513,7 @@ plot_Response_boxplot(
 ```{r}
 plot_Response_boxplot(
   df_adjusted, "GEP_scores",
-  "Purity-adjusted T cell–inflamed GEP score",
+  "Purity-adjusted T cell–inflamed GEP score ",
   GEP_Response_adjusted_test
 )
 ```
