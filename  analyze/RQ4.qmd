@@ -203,7 +203,7 @@ cat("GEP genes present:", length(GEP_genes_present), "of", length(GEP_genes), "\
 
 ```{r}
 # Extract GEP genes.
-GEP_expr <- tpm[GEP_genes_present, , drop = FALSE]
+GEP_expr <- log2(tpm[GEP_genes, , drop = FALSE] +1 )
 
 #Step 2:
 # Standardize each gene across samples.
@@ -405,13 +405,12 @@ expr_adjusted <- removeBatchEffect(
   covariates = matrix(df$purity, ncol = 1)
 )
 
-PD1_adjusted <- as.numeric(expr_adjusted["PDCD1", ])
+PD1_adjusted <- log2(as.numeric(expr_adjusted["PDCD1",  , drop = FALSE] +1 ))#log2(tpm[GEP_genes, , drop = FALSE] +1 )
 
-GEP_expr_adjusted <- expr_adjusted[
+GEP_expr_adjusted <- log2(expr_adjusted[
   GEP_genes_present,
-  ,
-  drop = FALSE
-]
+  , drop = FALSE] +1
+)
 
 GEP_expr_adjusted_scaled <- t(scale(t(GEP_expr_adjusted)))
 GEP_scores_adjusted <- colMeans(
@@ -495,7 +494,7 @@ pheatmap(
 ```
 
 ```{r}
-#same heatmap as above just diffrinft format:
+#same heatmap data as above just diffrinft format and scaing:
 
 # color scale
 heatmap_colours <- colorRampPalette(
