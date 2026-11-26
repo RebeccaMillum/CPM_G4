@@ -1,6 +1,6 @@
 # CPM_G4
 
-Group names: Cesilie, Alexsanda, Vitus, Louise, Rebecca Millum (s215024)
+Group names: Cecilie Møller-Jensen (s215086), Aleksandra Wozniak (s253713), Thomas Vitus Skyggebjerg (s210857), Louise Kirkegaard (s215038), Rebecca Millum (s215024)
 
 The folder /annlyse contains the following filles:
 
